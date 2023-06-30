@@ -1,7 +1,7 @@
-import RavencoinKey, { Network } from "@ravenrebels/ravencoin-key";
-import Signer from "@ravenrebels/ravencoin-sign-transaction";
+import NeuraiKey, { Network } from "@neuraiproject/neurai-key";
+import Signer from "@neuraiproject/neurai-sign-transaction";
 
-import { Wallet } from "../ravencoinWallet";
+import { Wallet } from "../neuraiWallet";
 import { IInput, SweepResult } from "../Types";
 import { getTwoDecimalTrunc } from "./Transactor";
 
@@ -20,7 +20,7 @@ export async function sweep(
   wallet: Wallet,
   onlineMode: boolean
 ): Promise<SweepResult> {
-  const privateKey = RavencoinKey.getAddressByWIF(wallet.network, WIF);
+  const privateKey = NeuraiKey.getAddressByWIF(wallet.network, WIF);
 
   const result: SweepResult = {};
   const rpc = wallet.rpc;

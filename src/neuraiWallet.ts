@@ -1,5 +1,5 @@
-import { getRPC, methods } from "@ravenrebels/ravencoin-rpc";
-import RavencoinKey from "@ravenrebels/ravencoin-key";
+import { getRPC, methods } from "@neuraiproject/neurai-rpc";
+import NeuraiKey from "@neuraiproject/neurai-key";
 import {
   ChainType,
   IAddressDelta,
@@ -15,8 +15,8 @@ import * as Transactor from "./blockchain/Transactor";
 
 import { sweep } from "./blockchain/sweep";
 
-const URL_MAINNET = "https://rvn-rpc-mainnet.ting.finance/rpc";
-const URL_TESTNET = "https://rvn-rpc-testnet.ting.finance/rpc";
+const URL_MAINNET = "https://xna-rpc-mainnet.ting.finance/rpc";
+const URL_TESTNET = "https://xna-rpc-testnet.ting.finance/rpc";
 
 //Avoid singleton (anti-pattern)
 //Meaning multiple instances of the wallet must be able to co-exist
@@ -24,12 +24,12 @@ const URL_TESTNET = "https://rvn-rpc-testnet.ting.finance/rpc";
 export class Wallet {
   rpc = getRPC("anonymous", "anonymous", URL_MAINNET);
   _mnemonic = "";
-  network: ChainType = "rvn";
+  network: ChainType = "xna";
   addressObjects: Array<IAddressMetaData> = [];
   receiveAddress = "";
   changeAddress = "";
   addressPosition = 0;
-  baseCurrency = "RVN"; //Default is RVN but it could be EVR
+  baseCurrency = "XNA"; //Default is XNA but it could be EVR
   offlineMode = false;
   setBaseCurrency(currency: string) {
     this.baseCurrency = currency;
@@ -41,7 +41,7 @@ export class Wallet {
    * Sweeping a private key means to send all the funds the address holds to your your wallet.
    * The private key you sweep do not become a part of your wallet.
    *
-   * NOTE: the address you sweep needs to cointain enough RVN to pay for the transaction
+   * NOTE: the address you sweep needs to cointain enough XNA to pay for the transaction
    *
    * @param WIF the private key of the address that you want move funds from
    * @returns either a string, that is the transaction id or null if there were no funds to send
@@ -86,7 +86,7 @@ export class Wallet {
       this.network = options.network;
       this.setBaseCurrency(getBaseCurrencyByNetwork(options.network));
     }
-    if (options.network === "rvn-test" && !options.rpc_url) {
+    if (options.network === "xna-test" && !options.rpc_url) {
       url = URL_TESTNET;
     }
 
@@ -101,7 +101,7 @@ export class Wallet {
     //Should we create an extra amount of addresses at startup?
     if (options.minAmountOfAddresses) {
       for (let i = 0; i < options.minAmountOfAddresses; i++) {
-        const o = RavencoinKey.getAddressPair(
+        const o = NeuraiKey.getAddressPair(
           this.network,
           this._mnemonic,
           ACCOUNT,
@@ -118,7 +118,7 @@ export class Wallet {
       const tempAddresses = [] as string[];
 
       for (let i = 0; i < 20; i++) {
-        const o = RavencoinKey.getAddressPair(
+        const o = NeuraiKey.getAddressPair(
           this.network,
           this._mnemonic,
           ACCOUNT,
@@ -400,8 +400,8 @@ export function getBaseCurrencyByNetwork(network: ChainType): string {
   const map = {
     evr: "EVR",
     "evr-test": "EVR",
-    rvn: "RVN",
-    "rvn-test": "RVN",
+    xna: "XNA",
+    "xna-test": "XNA",
   };
   return map[network];
 }

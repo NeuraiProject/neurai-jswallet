@@ -1,6 +1,6 @@
 export interface ISettings {
   assets?: Array<string>;
-  baseCurrency: "RVN"; //TODO is this really needed? do we not get that info from the network attribute?
+  baseCurrency: "XNA"; //TODO is this really needed? do we not get that info from the network attribute?
   mode: "RAVENCOIN_AND_ASSETS" | "ASSETS" | "SOME_ASSETS";
 
   subTagline?: string;
@@ -12,7 +12,7 @@ export interface ISend {
   toAddress: string;
   amount: number;
 }
-export type ChainType = "rvn" | "rvn-test" | "evr" | "evr-test";
+export type ChainType = "xna" | "xna-test" | "evr" | "evr-test";
 export interface IAddressDelta {
   address: string;
   assetName: string;
@@ -49,11 +49,11 @@ export interface ISendResult {
     outputs: any;
     privateKeys?: TPrivateKey;
     rawUnsignedTransaction?: string;
-    rvnAmount: number;
-    rvnChangeAmount: number;
-    rvnUTXOs: Array<IUTXO>;
+    xnaAmount: number;
+    xnaChangeAmount: number;
+    xnaUTXOs: Array<IUTXO>;
     signedTransaction?: string;
-    unspentRVNAmount: any;
+    unspentXNAAmount: any;
   };
 }
 export interface Asset {

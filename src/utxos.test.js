@@ -1,11 +1,11 @@
-const RavencoinWallet = require("../dist/index.cjs");
+const NeuraiWallet = require("../dist/index.cjs");
 
 test("Test UTXOs for assets and base currency", async () => {
   const mnemonic =
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
 
-  const network = "rvn-test";
-  const wallet = await RavencoinWallet.createInstance({
+  const network = "xna-test";
+  const wallet = await NeuraiWallet.createInstance({
     mnemonic,
     network,
   });

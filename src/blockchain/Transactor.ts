@@ -8,7 +8,7 @@ import {
   RPCType,
   TPrivateKey,
 } from "../Types";
-import { sign } from "@ravenrebels/ravencoin-sign-transaction";
+import { sign } from "@neuraiproject/neurai-sign-transaction";
 import * as blockchain from "./blockchain";
 
 import { ITransaction } from "../Types";
@@ -25,12 +25,12 @@ async function isValidAddress(rpc: RPCType, address: string) {
 }
 
 function sumOfUTXOs(UTXOs: Array<IUTXO>) {
-  let unspentRavencoinAmount = 0;
+  let unspentNeuraiAmount = 0;
   UTXOs.map(function (item) {
     const newValue = item.satoshis / 1e8;
-    unspentRavencoinAmount = unspentRavencoinAmount + newValue;
+    unspentNeuraiAmount = unspentNeuraiAmount + newValue;
   });
-  return unspentRavencoinAmount;
+  return unspentNeuraiAmount;
 }
 /*
 
@@ -38,7 +38,7 @@ function sumOfUTXOs(UTXOs: Array<IUTXO>) {
     We need to calculate how much we shall pay in fees based on the size of the transaction.
     When adding inputs/outputs for the fee, we increase the fee.
 
-    Lets start by first assuming that we will pay 1 RVN in fee (that is sky high).
+    Lets start by first assuming that we will pay 1 XNA in fee (that is sky high).
     Than we check the size of the transaction and then we just adjust the change output so the fee normalizes
 */
 async function getFee(
@@ -78,10 +78,10 @@ function getDefaultSendResult() {
       fee: 0,
       inputs: [],
       outputs: null,
-      rvnChangeAmount: 0,
-      rvnUTXOs: [],
-      unspentRVNAmount: "",
-      rvnAmount: 0,
+      xnaChangeAmount: 0,
+      xnaUTXOs: [],
+      unspentXNAAmount: "",
+      xnaAmount: 0,
     },
   };
   return sendResult;
@@ -154,10 +154,10 @@ export async function send(options: ISendInternalProps): Promise<ISendResult> {
   let unspentBaseCurrencyAmount = sumOfUTXOs(enoughBaseCurrencyUTXOs);
   if (unspentBaseCurrencyAmount <= 0) {
     throw new InsufficientFundsError(
-      "Not enough RVN to transfer asset, perhaps your wallet has pending transactions"
+      "Not enough XNA to transfer asset, perhaps your wallet has pending transactions"
     );
   }
-  sendResult.debug.unspentRVNAmount =
+  sendResult.debug.unspentXNAAmount =
     unspentBaseCurrencyAmount.toLocaleString();
 
   if (isAssetTransfer === false) {
@@ -172,7 +172,7 @@ export async function send(options: ISendInternalProps): Promise<ISendResult> {
   }
 
   const baseCurrencyAmountToSpend = isAssetTransfer ? 0 : amount;
-  sendResult.debug.rvnUTXOs = enoughBaseCurrencyUTXOs;
+  sendResult.debug.xnaUTXOs = enoughBaseCurrencyUTXOs;
   const inputs = blockchain.convertUTXOsToVOUT(enoughBaseCurrencyUTXOs);
   const outputs: any = {};
   //Add asset inputs
@@ -202,12 +202,12 @@ export async function send(options: ISendInternalProps): Promise<ISendResult> {
   const fee = await getFee(rpc, inputs, outputs);
   sendResult.debug.assetName = assetName;
   sendResult.debug.fee = fee;
-  sendResult.debug.rvnAmount = 0;
+  sendResult.debug.xnaAmount = 0;
 
   const baseCurrencyChangeAmount =
     unspentBaseCurrencyAmount - baseCurrencyAmountToSpend - fee;
 
-  sendResult.debug.rvnChangeAmount = baseCurrencyChangeAmount;
+  sendResult.debug.xnaChangeAmount = baseCurrencyChangeAmount;
 
   //Obviously we only add change address if there is any change
   if (getTwoDecimalTrunc(baseCurrencyChangeAmount) > 0) {
@@ -309,15 +309,15 @@ export function getEnoughUTXOs(
 ): Array<IUTXO> {
   /*
   Scenario ONE
-  Bob has 300 UTXO with 1 RVN each.
-  Bob has one UTXO with 400 RVN.
+  Bob has 300 UTXO with 1 XNA each.
+  Bob has one UTXO with 400 XNA.
 
-  Bob intends to send 300 RVN
+  Bob intends to send 300 XNA
   In this case the best thing to do is to use the single 400 UTXO
 
   SCENARIO TWO
 
-  Alice have tons of small UTXOs like 0.03 RVN, 0.2 RVN, she wants to send 5 RVN.
+  Alice have tons of small UTXOs like 0.03 XNA, 0.2 XNA, she wants to send 5 XNA.
   In this case it makes sense to clean up the "dust", so you dont end up with a lot of small change.
 
 

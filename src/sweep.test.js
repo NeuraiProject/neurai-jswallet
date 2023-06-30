@@ -1,4 +1,4 @@
-const RavencoinWallet = require("../dist/index.cjs");
+const NeuraiWallet = require("../dist/index.cjs");
 
 jest.setTimeout(20 * 1000);
 
@@ -11,10 +11,10 @@ test("Test sweep", async () => {
     TESTNET const WIF = "cUVdRNVobgjAw5jGWYkvbWmk42Vxzvte4btmsZ5qSqszdPi9M3Vy"
   */
   const WIF = "cUVdRNVobgjAw5jGWYkvbWmk42Vxzvte4btmsZ5qSqszdPi9M3Vy";
-  const network = "rvn-test";
+  const network = "xna-test";
 
   //The wallet that will RECEIVE the funds
-  const wallet = await RavencoinWallet.createInstance({
+  const wallet = await NeuraiWallet.createInstance({
     mnemonic:
       "frozen drift quiz glove wrong cycle glide increase hybrid arch endorse brisk",
     network,

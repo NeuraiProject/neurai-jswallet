@@ -3,7 +3,7 @@ interface ISend {
     toAddress: string;
     amount: number;
 }
-type ChainType = "rvn" | "rvn-test" | "evr" | "evr-test";
+type ChainType = "xna" | "xna-test";
 interface IAddressDelta {
     address: string;
     assetName: string;
@@ -38,11 +38,11 @@ interface ISendResult {
         outputs: any;
         privateKeys?: TPrivateKey;
         rawUnsignedTransaction?: string;
-        rvnAmount: number;
-        rvnChangeAmount: number;
-        rvnUTXOs: Array<IUTXO>;
+        xnaAmount: number;
+        xnaChangeAmount: number;
+        xnaUTXOs: Array<IUTXO>;
         signedTransaction?: string;
-        unspentRVNAmount: any;
+        unspentXNAAmount: any;
     };
 }
 interface IVout_when_creating_transactions {
@@ -102,7 +102,7 @@ export class Wallet {
      * Sweeping a private key means to send all the funds the address holds to your your wallet.
      * The private key you sweep do not become a part of your wallet.
      *
-     * NOTE: the address you sweep needs to cointain enough RVN to pay for the transaction
+     * NOTE: the address you sweep needs to cointain enough XNA to pay for the transaction
      *
      * @param WIF the private key of the address that you want move funds from
      * @returns either a string, that is the transaction id or null if there were no funds to send

@@ -109,7 +109,7 @@ export function getAllUnspentTransactionOutputs(
   addresses: Array<string>
 ) {
   /*
-  Seems like getaddressutxos either return RVN UTXOs or asset UTXOs
+  Seems like getaddressutxos either return XNA UTXOs or asset UTXOs
   Never both.
   So we make two requests and we join the answer
   */

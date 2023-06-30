@@ -1,7 +1,7 @@
-import {getRPC as $93qLg$getRPC, methods as $93qLg$methods} from "@ravenrebels/ravencoin-rpc";
-import $93qLg$ravenrebelsravencoinkey from "@ravenrebels/ravencoin-key";
+import {getRPC as $93qLg$getRPC, methods as $93qLg$methods} from "@neuraiproject/neurai-rpc";
+import $93qLg$neuraiprojectneuraikey from "@neuraiproject/neurai-key";
 import {Buffer as $93qLg$Buffer} from "buffer";
-import $93qLg$ravenrebelsravencoinsigntransaction, {sign as $93qLg$sign} from "@ravenrebels/ravencoin-sign-transaction";
+import $93qLg$neuraiprojectneuraisigntransaction, {sign as $93qLg$sign} from "@neuraiproject/neurai-sign-transaction";
 
 
 
@@ -97,7 +97,7 @@ function $de17ee1c983f5fa9$export$61ff118ad91d2b8c(rpc, addresses, assetName) {
 }
 function $de17ee1c983f5fa9$export$11b542b4427a1a57(rpc, addresses) {
     /*
-  Seems like getaddressutxos either return RVN UTXOs or asset UTXOs
+  Seems like getaddressutxos either return XNA UTXOs or asset UTXOs
   Never both.
   So we make two requests and we join the answer
   */ const raven = rpc("getaddressutxos", [
@@ -170,12 +170,12 @@ async function $8a6a99603cc26764$var$isValidAddress(rpc, address) {
     return obj.isvalid === true;
 }
 function $8a6a99603cc26764$var$sumOfUTXOs(UTXOs) {
-    let unspentRavencoinAmount = 0;
+    let unspentNeuraiAmount = 0;
     UTXOs.map(function(item) {
         const newValue = item.satoshis / 1e8;
-        unspentRavencoinAmount = unspentRavencoinAmount + newValue;
+        unspentNeuraiAmount = unspentNeuraiAmount + newValue;
     });
-    return unspentRavencoinAmount;
+    return unspentNeuraiAmount;
 }
 /*
 
@@ -183,7 +183,7 @@ function $8a6a99603cc26764$var$sumOfUTXOs(UTXOs) {
     We need to calculate how much we shall pay in fees based on the size of the transaction.
     When adding inputs/outputs for the fee, we increase the fee.
 
-    Lets start by first assuming that we will pay 1 RVN in fee (that is sky high).
+    Lets start by first assuming that we will pay 1 XNA in fee (that is sky high).
     Than we check the size of the transaction and then we just adjust the change output so the fee normalizes
 */ async function $8a6a99603cc26764$var$getFee(rpc, inputs, outputs) {
     const ONE_KILOBYTE = 1024;
@@ -215,10 +215,10 @@ function $8a6a99603cc26764$var$getDefaultSendResult() {
             fee: 0,
             inputs: [],
             outputs: null,
-            rvnChangeAmount: 0,
-            rvnUTXOs: [],
-            unspentRVNAmount: "",
-            rvnAmount: 0
+            xnaChangeAmount: 0,
+            xnaUTXOs: [],
+            unspentXNAAmount: "",
+            xnaAmount: 0
         }
     };
     return sendResult;
@@ -249,13 +249,13 @@ async function $8a6a99603cc26764$export$89db4734f6c919c4(options) {
     const enoughBaseCurrencyUTXOs = $8a6a99603cc26764$export$aef5e6c96bd29914(allBaseCurrencyUTXOs, isAssetTransfer ? 1 : amount + MAX_FEE);
     //Sum up the whole unspent amount
     let unspentBaseCurrencyAmount = $8a6a99603cc26764$var$sumOfUTXOs(enoughBaseCurrencyUTXOs);
-    if (unspentBaseCurrencyAmount <= 0) throw new (0, $df4abebf0c223404$export$b276096bbba16879)("Not enough RVN to transfer asset, perhaps your wallet has pending transactions");
-    sendResult.debug.unspentRVNAmount = unspentBaseCurrencyAmount.toLocaleString();
+    if (unspentBaseCurrencyAmount <= 0) throw new (0, $df4abebf0c223404$export$b276096bbba16879)("Not enough XNA to transfer asset, perhaps your wallet has pending transactions");
+    sendResult.debug.unspentXNAAmount = unspentBaseCurrencyAmount.toLocaleString();
     if (isAssetTransfer === false) {
         if (amount > unspentBaseCurrencyAmount) throw new (0, $df4abebf0c223404$export$b276096bbba16879)("Insufficient funds, cant send " + amount.toLocaleString() + " only have " + unspentBaseCurrencyAmount.toLocaleString());
     }
     const baseCurrencyAmountToSpend = isAssetTransfer ? 0 : amount;
-    sendResult.debug.rvnUTXOs = enoughBaseCurrencyUTXOs;
+    sendResult.debug.xnaUTXOs = enoughBaseCurrencyUTXOs;
     const inputs = $de17ee1c983f5fa9$export$6a4ffba0c6186ae7(enoughBaseCurrencyUTXOs);
     const outputs = {};
     //Add asset inputs
@@ -268,9 +268,9 @@ async function $8a6a99603cc26764$export$89db4734f6c919c4(options) {
     const fee = await $8a6a99603cc26764$var$getFee(rpc, inputs, outputs);
     sendResult.debug.assetName = assetName;
     sendResult.debug.fee = fee;
-    sendResult.debug.rvnAmount = 0;
+    sendResult.debug.xnaAmount = 0;
     const baseCurrencyChangeAmount = unspentBaseCurrencyAmount - baseCurrencyAmountToSpend - fee;
-    sendResult.debug.rvnChangeAmount = baseCurrencyChangeAmount;
+    sendResult.debug.xnaChangeAmount = baseCurrencyChangeAmount;
     //Obviously we only add change address if there is any change
     if ($8a6a99603cc26764$export$82aafe8193f6c0ba(baseCurrencyChangeAmount) > 0) outputs[changeAddress] = $8a6a99603cc26764$export$82aafe8193f6c0ba(baseCurrencyChangeAmount);
     //Now we have enough UTXos, lets create a raw transactions
@@ -329,15 +329,15 @@ function $8a6a99603cc26764$export$82aafe8193f6c0ba(num) {
 function $8a6a99603cc26764$export$aef5e6c96bd29914(utxos, amount) {
     /*
   Scenario ONE
-  Bob has 300 UTXO with 1 RVN each.
-  Bob has one UTXO with 400 RVN.
+  Bob has 300 UTXO with 1 XNA each.
+  Bob has one UTXO with 400 XNA.
 
-  Bob intends to send 300 RVN
+  Bob intends to send 300 XNA
   In this case the best thing to do is to use the single 400 UTXO
 
   SCENARIO TWO
 
-  Alice have tons of small UTXOs like 0.03 RVN, 0.2 RVN, she wants to send 5 RVN.
+  Alice have tons of small UTXOs like 0.03 XNA, 0.2 XNA, she wants to send 5 XNA.
   In this case it makes sense to clean up the "dust", so you dont end up with a lot of small change.
 
 
@@ -386,7 +386,7 @@ function $8a6a99603cc26764$export$9ffd76c05265a057(mempool, UTXO) {
 //OH easter egg ;)
 const $67c46d86d9d50c48$var$WIF = "Kz5U4Bmhrng4o2ZgwBi5PjtorCeq2dyM7axGQfdxsBSwCKi5ZfTw";
 async function $67c46d86d9d50c48$export$322a62cff28f560a(WIF, wallet, onlineMode) {
-    const privateKey = (0, $93qLg$ravenrebelsravencoinkey).getAddressByWIF(wallet.network, WIF);
+    const privateKey = (0, $93qLg$neuraiprojectneuraikey).getAddressByWIF(wallet.network, WIF);
     const result = {};
     const rpc = wallet.rpc;
     const obj = {
@@ -454,7 +454,7 @@ async function $67c46d86d9d50c48$export$322a62cff28f560a(WIF, wallet, onlineMode
     const privateKeys = {
         [privateKey.address]: WIF
     };
-    const signedHex = (0, $93qLg$ravenrebelsravencoinsigntransaction).sign(wallet.network, rawHex, UTXOs, privateKeys);
+    const signedHex = (0, $93qLg$neuraiprojectneuraisigntransaction).sign(wallet.network, rawHex, UTXOs, privateKeys);
     result.rawTransaction = signedHex;
     if (onlineMode === true) result.transactionId = await rpc("sendrawtransaction", [
         signedHex
@@ -463,8 +463,8 @@ async function $67c46d86d9d50c48$export$322a62cff28f560a(WIF, wallet, onlineMode
 }
 
 
-const $c3676b79c37149df$var$URL_MAINNET = "https://rvn-rpc-mainnet.ting.finance/rpc";
-const $c3676b79c37149df$var$URL_TESTNET = "https://rvn-rpc-testnet.ting.finance/rpc";
+const $c3676b79c37149df$var$URL_MAINNET = "https://xna-rpc-mainnet.ting.finance/rpc";
+const $c3676b79c37149df$var$URL_TESTNET = "https://xna-rpc-testnet.ting.finance/rpc";
 class $c3676b79c37149df$export$bcca3ea514774656 {
     setBaseCurrency(currency) {
         this.baseCurrency = currency;
@@ -476,7 +476,7 @@ class $c3676b79c37149df$export$bcca3ea514774656 {
    * Sweeping a private key means to send all the funds the address holds to your your wallet.
    * The private key you sweep do not become a part of your wallet.
    *
-   * NOTE: the address you sweep needs to cointain enough RVN to pay for the transaction
+   * NOTE: the address you sweep needs to cointain enough XNA to pay for the transaction
    *
    * @param WIF the private key of the address that you want move funds from
    * @returns either a string, that is the transaction id or null if there were no funds to send
@@ -508,7 +508,7 @@ class $c3676b79c37149df$export$bcca3ea514774656 {
             this.network = options.network;
             this.setBaseCurrency($c3676b79c37149df$export$af0c167f1aa2328f(options.network));
         }
-        if (options.network === "rvn-test" && !options.rpc_url) url = $c3676b79c37149df$var$URL_TESTNET;
+        if (options.network === "xna-test" && !options.rpc_url) url = $c3676b79c37149df$var$URL_TESTNET;
         this.rpc = (0, $93qLg$getRPC)(username, password, url);
         //DERIVE ADDRESSES BIP44, external 20 unused (that is no history, not no balance)
         //TODO improve performance by creating blocks of 20 addresses and check history for all 20 at once
@@ -517,7 +517,7 @@ class $c3676b79c37149df$export$bcca3ea514774656 {
         const ACCOUNT = 0;
         //Should we create an extra amount of addresses at startup?
         if (options.minAmountOfAddresses) for(let i = 0; i < options.minAmountOfAddresses; i++){
-            const o = (0, $93qLg$ravenrebelsravencoinkey).getAddressPair(this.network, this._mnemonic, ACCOUNT, this.addressPosition);
+            const o = (0, $93qLg$neuraiprojectneuraikey).getAddressPair(this.network, this._mnemonic, ACCOUNT, this.addressPosition);
             this.addressObjects.push(o.external);
             this.addressObjects.push(o.internal);
             this.addressPosition++;
@@ -526,7 +526,7 @@ class $c3676b79c37149df$export$bcca3ea514774656 {
         while(isLast20ExternalAddressesUnused === false){
             const tempAddresses = [];
             for(let i = 0; i < 20; i++){
-                const o = (0, $93qLg$ravenrebelsravencoinkey).getAddressPair(this.network, this._mnemonic, ACCOUNT, this.addressPosition);
+                const o = (0, $93qLg$neuraiprojectneuraikey).getAddressPair(this.network, this._mnemonic, ACCOUNT, this.addressPosition);
                 this.addressObjects.push(o.external);
                 this.addressObjects.push(o.internal);
                 this.addressPosition++;
@@ -745,12 +745,12 @@ class $c3676b79c37149df$export$bcca3ea514774656 {
     constructor(){
         this.rpc = (0, $93qLg$getRPC)("anonymous", "anonymous", $c3676b79c37149df$var$URL_MAINNET);
         this._mnemonic = "";
-        this.network = "rvn";
+        this.network = "xna";
         this.addressObjects = [];
         this.receiveAddress = "";
         this.changeAddress = "";
         this.addressPosition = 0;
-        this.baseCurrency = "RVN" //Default is RVN but it could be EVR
+        this.baseCurrency = "XNA" //Default is XNA but it could be EVR
         ;
         this.offlineMode = false;
     }
@@ -767,8 +767,8 @@ function $c3676b79c37149df$export$af0c167f1aa2328f(network) {
     const map = {
         evr: "EVR",
         "evr-test": "EVR",
-        rvn: "RVN",
-        "rvn-test": "RVN"
+        xna: "XNA",
+        "xna-test": "XNA"
     };
     return map[network];
 }

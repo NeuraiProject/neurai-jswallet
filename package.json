@@ -1,33 +1,33 @@
 {
-  "name": "@ravenrebels/ravencoin-jswallet",
+  "name": "@neuraiproject/neurai-jswallet",
   "version": "0.7.25",
-  "description": "Ravencoin JavaScript wallet library",
+  "description": "Neurai JavaScript wallet library",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "dist/types.d.ts",
   "scripts": {
-    "build": "parcel build ./src/ravencoinWallet.ts",
+    "build": "parcel build ./src/neuraiWallet.ts",
     "test": "jest",
     "test:sweep": "jest ./src/sweep.test.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ravenrebels/ravencoin-jswallet.git"
+    "url": "git+https://github.com/neuraiproject/neurai-jswallet.git"
   },
   "keywords": [
-    "Ravencoin"
+    "Neurai"
   ],
   "author": "",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/ravenrebels/ravencoin-jswallet/issues"
+    "url": "https://github.com/neuraiproject/neurai-jswallet/issues"
   },
   "dependencies": {
-    "@ravenrebels/ravencoin-key": "^2.5.0",
-    "@ravenrebels/ravencoin-rpc": "^0.2.7",
-    "@ravenrebels/ravencoin-sign-transaction": "^0.2.9"
+    "@neuraiproject/neurai-key": "^2.5.0",
+    "@neuraiproject/neurai-rpc": "^0.2.7",
+    "@neuraiproject/neurai-sign-transaction": "^0.2.9"
   },
-  "homepage": "https://github.com/ravenrebels/ravencoin-jswallet#readme",
+  "homepage": "https://github.com/neuraiproject/neurai-jswallet#readme",
   "devDependencies": {
     "@parcel/packager-ts": "^2.9.1",
     "@parcel/transformer-typescript-types": "^2.9.1",

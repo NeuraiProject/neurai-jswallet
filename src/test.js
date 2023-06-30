@@ -1,4 +1,4 @@
-const RavencoinWallet = require("../dist/index.cjs");
+const NeuraiWallet = require("../dist/index.cjs");
 
 jest.setTimeout(20 * 1000);
 
@@ -8,8 +8,8 @@ test("Test UTXOs for assets and base currency", async () => {
   const mnemonic =
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
 
-  const network = "rvn-test";
-  const wallet = await RavencoinWallet.createInstance({
+  const network = "xna-test";
+  const wallet = await NeuraiWallet.createInstance({
     mnemonic,
     network,
   });
@@ -21,25 +21,25 @@ test("Test UTXOs for assets and base currency", async () => {
 });
 
 test("getBaseCurrencyByNetwork", async () => {
-  expect(RavencoinWallet.getBaseCurrencyByNetwork("evr")).toBe("EVR");
-  expect(RavencoinWallet.getBaseCurrencyByNetwork("evr-test")).toBe("EVR");
+  expect(NeuraiWallet.getBaseCurrencyByNetwork("evr")).toBe("EVR");
+  expect(NeuraiWallet.getBaseCurrencyByNetwork("evr-test")).toBe("EVR");
 
-  expect(RavencoinWallet.getBaseCurrencyByNetwork("rvn")).toBe("RVN");
-  expect(RavencoinWallet.getBaseCurrencyByNetwork("rvn-test")).toBe("RVN");
+  expect(NeuraiWallet.getBaseCurrencyByNetwork("xna")).toBe("XNA");
+  expect(NeuraiWallet.getBaseCurrencyByNetwork("xna-test")).toBe("XNA");
 });
 
-test("Network rvn should give base currency RVN", async () => {
+test("Network xna should give base currency XNA", async () => {
   const mnemonic =
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
 
-  const network = "rvn";
-  const wallet = await RavencoinWallet.createInstance({
+  const network = "xna";
+  const wallet = await NeuraiWallet.createInstance({
     mnemonic,
     network,
     offlineMode: true,
   });
   const baseCurrency = wallet.baseCurrency;
-  expect(baseCurrency).toBe("RVN");
+  expect(baseCurrency).toBe("XNA");
 });
 
 test("Network evr should give base currency EVR", async () => {
@@ -47,7 +47,7 @@ test("Network evr should give base currency EVR", async () => {
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
 
   const network = "evr";
-  const wallet = await RavencoinWallet.createInstance({
+  const wallet = await NeuraiWallet.createInstance({
     mnemonic,
     network,
     offlineMode: true,
@@ -56,19 +56,19 @@ test("Network evr should give base currency EVR", async () => {
   expect(baseCurrency).toBe("EVR");
 });
 
-test("Network rvn-test should give base currency RVN", async () => {
+test("Network xna-test should give base currency XNA", async () => {
   const mnemonic =
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
 
-  const network = "rvn-test";
-  const wallet = await RavencoinWallet.createInstance({
+  const network = "xna-test";
+  const wallet = await NeuraiWallet.createInstance({
     mnemonic,
     network,
     offlineMode: true,
   });
 
   const baseCurrency = wallet.baseCurrency;
-  expect(baseCurrency).toBe("RVN");
+  expect(baseCurrency).toBe("XNA");
 });
 
 test("Network evr-test should give base currency EVR", async () => {
@@ -76,7 +76,7 @@ test("Network evr-test should give base currency EVR", async () => {
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
 
   const network = "evr-test";
-  const wallet = await RavencoinWallet.createInstance({
+  const wallet = await NeuraiWallet.createInstance({
     mnemonic,
     network,
     offlineMode: true,
@@ -91,9 +91,9 @@ test("get balance", async () => {
   const mnemonic =
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
 
-  wallet = await RavencoinWallet.createInstance({
+  wallet = await NeuraiWallet.createInstance({
     mnemonic,
-    network: "rvn-test",
+    network: "xna-test",
   });
 
   const balance = await wallet.getBalance();
@@ -146,9 +146,9 @@ test("Send asset we do not have", async () => {
 test("Change and to address cant be the same", async () => {
   const mnemonic = "bla bla bla";
 
-  wallet = await RavencoinWallet.createInstance({
+  wallet = await NeuraiWallet.createInstance({
     mnemonic,
-    network: "rvn-test",
+    network: "xna-test",
   });
 
   let error = null;
@@ -173,9 +173,9 @@ test("Min amount of addresses", async () => {
   const mnemonic = "bla bla bla";
 
   const minAmountOfAddresses = 1000;
-  wallet = await RavencoinWallet.createInstance({
+  wallet = await NeuraiWallet.createInstance({
     mnemonic,
-    network: "rvn-test",
+    network: "xna-test",
     minAmountOfAddresses,
     offlineMode: true,
   });
