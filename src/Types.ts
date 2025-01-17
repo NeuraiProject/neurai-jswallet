@@ -1,16 +1,22 @@
+import { Wallet } from "./neuraiWallet";
+
 export interface ISettings {
   assets?: Array<string>;
   baseCurrency: "XNA"; //TODO is this really needed? do we not get that info from the network attribute?
-  mode: "RAVENCOIN_AND_ASSETS" | "ASSETS" | "SOME_ASSETS";
+  mode: "NEURAI_AND_ASSETS" | "ASSETS" | "SOME_ASSETS";
 
   subTagline?: string;
   tagline: string;
   headline: string;
 }
 export interface ISend {
+  amount: number;
   assetName?: string;
   toAddress: string;
-  amount: number;
+
+  forcedUTXOs?: IForcedUTXO[];
+  forcedChangeAddressAssets?: string;
+  forcedChangeAddressBaseCurrency?: string;
 }
 export type ChainType = "xna" | "xna-test" | "evr" | "evr-test";
 export interface IAddressDelta {
@@ -21,6 +27,31 @@ export interface IAddressDelta {
   index: number;
   satoshis: number;
   txid: string;
+
+  prevtxid?: string;
+}
+export interface ISendManyOptions {
+  assetName?: string;
+  outputs: { [key: string]: number };
+}
+
+export interface ISendManyTransactionOptions {
+  assetName?: string;
+  outputs: { [key: string]: number };
+  wallet: Wallet;
+  forcedUTXOs?: IForcedUTXO[];
+  forcedChangeAddressAssets?: string;
+  forcedChangeAddressBaseCurrency?: string;
+}
+export interface ITransactionOptions {
+  amount: number;
+  assetName: string;
+  toAddress: string;
+  wallet: Wallet;
+
+  forcedUTXOs?: IForcedUTXO[];
+  forcedChangeAddressAssets?: string;
+  forcedChangeAddressBaseCurrency?: string;
 }
 
 export interface SweepResult {
@@ -38,11 +69,10 @@ export type TPrivateKey = {
 };
 
 export interface ISendResult {
-  transactionId: string;
+  transactionId: string | null;
   debug: {
     amount: number;
     assetName: string;
-    assetUTXOs: Array<IUTXO>;
     error?: any;
     fee: number;
     inputs: Array<IVout_when_creating_transactions>;
@@ -51,9 +81,9 @@ export interface ISendResult {
     rawUnsignedTransaction?: string;
     xnaAmount: number;
     xnaChangeAmount: number;
-    xnaUTXOs: Array<IUTXO>;
     signedTransaction?: string;
-    unspentXNAAmount: any;
+    UTXOs: IUTXO[];
+    walletMempool: any;
   };
 }
 export interface Asset {
@@ -161,12 +191,14 @@ export interface IValidateAddressResponse {
 export interface IUTXO {
   address: string;
   assetName: string;
-  txid: string;
+  height?: number;
   outputIndex: number;
   script: string;
   satoshis: number;
-  height: number;
+  txid: string;
   value: number;
+  //custom property
+  forced?: boolean;
 }
 export interface IAssetMetaData {
   assetName: string;
@@ -205,12 +237,38 @@ export interface IAddressMetaData {
   path: string;
   privateKey: string;
 }
-export interface IUTXO {
+
+export interface ITransactionOptions {
+  amount: number;
+  assetName: string;
+  toAddress: string;
+  wallet: Wallet;
+}
+
+export interface IOptions {
+  mnemonic: string;
+  minAmountOfAddresses?: number;
+  network?: ChainType;
+  rpc_username?: string;
+  rpc_password?: string;
+  rpc_url?: string;
+
+  offlineMode?: boolean;
+}
+
+export interface IMempoolEntry {
   address: string;
   assetName: string;
   txid: string;
-  outputIndex: number;
-  script: string;
+  index: number;
   satoshis: number;
-  height: number;
+  timestamp: number;
+  prevtxid: string;
+  prevout: number;
+}
+
+export interface IForcedUTXO {
+  utxo: IUTXO;
+  privateKey: string;
+  address: string;
 }

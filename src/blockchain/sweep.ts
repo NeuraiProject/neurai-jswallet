@@ -1,9 +1,11 @@
 import NeuraiKey, { Network } from "@neuraiproject/neurai-key";
 import Signer from "@neuraiproject/neurai-sign-transaction";
 
+!!Signer.sign; //"Idiocracy" but prevents bundle tools such as PARCEL to strip this dependency out on build.
+
 import { Wallet } from "../neuraiWallet";
 import { IInput, SweepResult } from "../Types";
-import { getTwoDecimalTrunc } from "./Transactor";
+import { shortenNumber } from "./SendManyTransaction";
 
 //sight rate burger maid melody slogan attitude gas account sick awful hammer
 //OH easter egg ;)
@@ -39,8 +41,7 @@ export async function sweep(
   //Create a raw transaction with ALL UTXOs
 
   if (UTXOs.length === 0) {
-    result.errorDescription =
-      "Address " + privateKey.address + " has no funds";
+    result.errorDescription = "Address " + privateKey.address + " has no funds";
     return result;
   }
   const balanceObject = {};
@@ -48,7 +49,7 @@ export async function sweep(
   UTXOs.map((utxo) => {
     if (!balanceObject[utxo.assetName]) {
       balanceObject[utxo.assetName] = 0;
-    } 
+    }
     balanceObject[utxo.assetName] += utxo.satoshis;
   });
 
@@ -64,7 +65,7 @@ export async function sweep(
     const amount = balanceObject[assetName] / 1e8;
 
     if (assetName === wallet.baseCurrency) {
-      outputs[address] = getTwoDecimalTrunc(amount - fixedFee);
+      outputs[address] = shortenNumber(amount - fixedFee);
     } else {
       outputs[address] = {
         transfer: {

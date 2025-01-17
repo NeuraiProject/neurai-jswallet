@@ -1,28 +1,38 @@
 import { getRPC, methods } from "@neuraiproject/neurai-rpc";
 import NeuraiKey from "@neuraiproject/neurai-key";
+import Signer from "@neuraiproject/neurai-sign-transaction";
 import {
   ChainType,
   IAddressDelta,
   IAddressMetaData,
+  IMempoolEntry,
+  IOptions,
   ISend,
-  ISendInternalProps,
+  ISendManyOptions,
   ISendResult,
+  IUTXO,
   SweepResult,
 } from "./Types";
-import { ONE_FULL_COIN } from "./contants";
-
-import * as Transactor from "./blockchain/Transactor";
 
 import { sweep } from "./blockchain/sweep";
+import { Transaction } from "./blockchain/Transaction";
+import { SendManyTransaction } from "./blockchain/SendManyTransaction";
+import { getBaseCurrencyByNetwork } from "./getBaseCurrencyByNetwork";
+import { getBalance } from "./getBalance";
+import { ValidationError } from "./Errors";
+import { getAssets } from "./getAssets";
 
-const URL_MAINNET = "https://xna-rpc-mainnet.ting.finance/rpc";
-const URL_TESTNET = "https://xna-rpc-testnet.ting.finance/rpc";
+export { Transaction };
+export { SendManyTransaction };
+const URL_NEURAI_MAINNET = "https://xna-main.neurai.org/rpc";
+const URL_NEURAI_TESTNET = "https://xna-testnet.neurai.org/rpc";
+const URL_EVRMORE_MAINNET = "https://evr-rpc-mainnet.ting.finance/rpc";
 
 //Avoid singleton (anti-pattern)
 //Meaning multiple instances of the wallet must be able to co-exist
 
 export class Wallet {
-  rpc = getRPC("anonymous", "anonymous", URL_MAINNET);
+  rpc = getRPC("anonymous", "anonymous", URL_NEURAI_MAINNET);
   _mnemonic = "";
   network: ChainType = "xna";
   addressObjects: Array<IAddressMetaData> = [];
@@ -39,7 +49,7 @@ export class Wallet {
   }
   /**
    * Sweeping a private key means to send all the funds the address holds to your your wallet.
-   * The private key you sweep do not become a part of your wallet.
+   * The private key you sweep does not become a part of your wallet.
    *
    * NOTE: the address you sweep needs to cointain enough XNA to pay for the transaction
    *
@@ -64,7 +74,7 @@ export class Wallet {
   async init(options: IOptions) {
     let username = "anonymous";
     let password = "anonymous";
-    let url = URL_MAINNET;
+    let url = URL_NEURAI_MAINNET;
 
     //VALIDATION
     if (!options) {
@@ -77,67 +87,71 @@ export class Wallet {
     if (!options.mnemonic) {
       throw Error("option.mnemonic is mandatory");
     }
-
+    if (options.network === "xna-test") {
+      url = URL_NEURAI_TESTNET;
+    }
+    if (options.network === "evr") {
+      url = URL_EVRMORE_MAINNET;
+    }
     url = options.rpc_url || url;
-    password = options.rpc_password || url;
-    username = options.rpc_username || url;
+    password = options.rpc_password || password;
+    username = options.rpc_username || username;
 
     if (options.network) {
       this.network = options.network;
       this.setBaseCurrency(getBaseCurrencyByNetwork(options.network));
     }
-    if (options.network === "xna-test" && !options.rpc_url) {
-      url = URL_TESTNET;
-    }
 
     this.rpc = getRPC(username, password, url);
-    //DERIVE ADDRESSES BIP44, external 20 unused (that is no history, not no balance)
-    //TODO improve performance by creating blocks of 20 addresses and check history for all 20 at once
-    //That is one history lookup intead of 20
     this._mnemonic = options.mnemonic;
 
+    //Generating the hd key is slow, so we re-use the object
+    const hdKey = NeuraiKey.getHDKey(this.network, this._mnemonic);
+    const coinType = NeuraiKey.getCoinType(this.network);
     const ACCOUNT = 0;
 
-    //Should we create an extra amount of addresses at startup?
-    if (options.minAmountOfAddresses) {
-      for (let i = 0; i < options.minAmountOfAddresses; i++) {
-        const o = NeuraiKey.getAddressPair(
-          this.network,
-          this._mnemonic,
-          ACCOUNT,
-          this.addressPosition
-        );
-        this.addressObjects.push(o.external);
-        this.addressObjects.push(o.internal);
-        this.addressPosition++;
-      }
-    }
+    const minAmountOfAddresses = Number.isFinite(options.minAmountOfAddresses)
+      ? options.minAmountOfAddresses
+      : 0;
 
-    let isLast20ExternalAddressesUnused = false;
-    while (isLast20ExternalAddressesUnused === false) {
+    let doneDerivingAddresses = false;
+    while (doneDerivingAddresses === false) {
+      //We add new addresses to tempAddresses so we can check history for the last 20
       const tempAddresses = [] as string[];
 
       for (let i = 0; i < 20; i++) {
-        const o = NeuraiKey.getAddressPair(
+        const external = NeuraiKey.getAddressByPath(
           this.network,
-          this._mnemonic,
-          ACCOUNT,
-          this.addressPosition
+          hdKey,
+          `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`
         );
-        this.addressObjects.push(o.external);
-        this.addressObjects.push(o.internal);
+
+        const internal = NeuraiKey.getAddressByPath(
+          this.network,
+          hdKey,
+          `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`
+        );
+
+        this.addressObjects.push(external);
+        this.addressObjects.push(internal);
         this.addressPosition++;
 
-        tempAddresses.push(o.external.address + "");
-        tempAddresses.push(o.internal.address + "");
+        tempAddresses.push(external.address + "");
+        tempAddresses.push(internal.address + "");
       }
 
-      if (this.offlineMode === true) {
+      if (
+        minAmountOfAddresses &&
+        minAmountOfAddresses >= this.addressPosition
+      ) {
+        //In case we intend to create extra addresses on startup
+        doneDerivingAddresses = false;
+      } else if (this.offlineMode === true) {
         //BREAK generation of addresses and do NOT check history on the network
-        isLast20ExternalAddressesUnused = true;
+        doneDerivingAddresses = true;
       } else {
         //If no history, break
-        isLast20ExternalAddressesUnused =
+        doneDerivingAddresses =
           false === (await this.hasHistory(tempAddresses));
       }
     }
@@ -222,34 +236,6 @@ export class Wallet {
     }
 
     return result;
-    /*
-    //even addresses are external, odd address are internal/changes
-    for (let counter = 0; counter < addresses.length; counter++) {
-      //Internal addresses should be even numbers
-      if (external && counter % 2 !== 0) {
-        continue;
-      }
-      //Internal addresses should be odd numbers
-      if (external === false && counter % 2 === 0) {
-        continue;
-      }
-      const address = addresses[counter];
-
-      //If an address has tenth of thousands of transactions, getHistory will throw an exception
-
-      const hasHistory = await this.hasHistory([address]);
-
-      if (hasHistory === false) {
-        if (external === true) {
-          this.receiveAddress = address;
-        }
-        if (external === false) {
-          this.changeAddress = address;
-        }
-        return address;
-      }
-    }
-*/
   }
 
   async getHistory(): Promise<IAddressDelta[]> {
@@ -262,11 +248,11 @@ export class Wallet {
     const addressDeltas: IAddressDelta[] = deltas as IAddressDelta[];
     return addressDeltas;
   }
-  async getMempool(): Promise<IAddressDelta[]> {
+  async getMempool(): Promise<IMempoolEntry[]> {
     const method = methods.getaddressmempool;
     const includeAssets = true;
     const params = [{ addresses: this.getAddresses() }, includeAssets];
-    return this.rpc(method, params) as Promise<IAddressDelta[]>;
+    return this.rpc(method, params) as Promise<IMempoolEntry[]>;
   }
   async getReceiveAddress() {
     const isExternal = true;
@@ -282,7 +268,7 @@ export class Wallet {
    * @param assetName if present, only return UTXOs for that asset, otherwise for all assets
    * @returns UTXOs for assets
    */
-  async getAssetUTXOs(assetName?: string) {
+  async getAssetUTXOs(assetName?: string): Promise<IUTXO[]> {
     //If no asset name, set to wildcard, meaning all assets
     const _assetName = !assetName ? "*" : assetName;
     const chainInfo = false;
@@ -306,31 +292,63 @@ export class Wallet {
     }
     return f.WIF;
   }
+  async sendRawTransaction(raw: string): Promise<string> {
+    return this.rpc("sendrawtransaction", [raw]);
+  }
 
   async send(options: ISend): Promise<ISendResult> {
+    //ACTUAL SENDING TRANSACTION
+
+    //Important, do not swallow the exceptions/errors of createTransaction, let them fly
+    const sendResult: ISendResult = await this.createTransaction(options);
+
+    const id = await this.rpc("sendrawtransaction", [
+      sendResult.debug.signedTransaction,
+    ]);
+    sendResult.transactionId = id;
+
+    return sendResult;
+  }
+
+  async sendMany({ outputs, assetName }: ISendManyOptions) {
+    const options = {
+      wallet: this,
+      outputs,
+      assetName,
+    };
+    const sendResult: ISendResult = await this.createSendManyTransaction(
+      options
+    );
+
+    //ACTUAL SENDING TRANSACTION
+    //Important, do not swallow the exceptions/errors of createSendManyTransaction, let them fly
+
+    try {
+      const id = await this.rpc("sendrawtransaction", [
+        sendResult.debug.signedTransaction,
+      ]);
+      sendResult.transactionId = id;
+
+      return sendResult;
+    } catch (e) {
+      throw new Error(
+        "Error while sending, perhaps you have pending transaction? Please try again."
+      );
+    }
+  }
+  /**
+   * Does all the heavy lifting regarding creating a SendManyTransaction
+   * but it does not broadcast the actual transaction.
+   * Perhaps the user wants to accept the transaction fee?
+   * @param options
+   * @returns An transaction that has not been broadcasted
+   */
+  async createTransaction(options: ISend): Promise<ISendResult> {
     const { amount, toAddress } = options;
     let { assetName } = options;
 
     if (!assetName) {
       assetName = this.baseCurrency;
-    }
-    const changeAddress = await this.getChangeAddress();
-
-    //Find the first change address after change address (emergency take the first).
-    const addresses = this.getAddresses();
-    let index = addresses.indexOf(changeAddress);
-    if (index > addresses.length - 2) {
-      index = 1;
-    }
-    if (index === -1) {
-      index = 1;
-    }
-    const changeAddressAssets = addresses[index + 2];
-
-    if (changeAddressAssets === changeAddress) {
-      throw Error(
-        "Internal Error, changeAddress and changeAddressAssets cannot be the same"
-      );
     }
 
     //Validation
@@ -340,78 +358,224 @@ export class Wallet {
     if (!amount) {
       throw Error("Wallet.send amount is mandatory");
     }
+    const changeAddress = await this.getChangeAddress();
 
     if (changeAddress === toAddress) {
-      throw Error(
-        "Wallet.send change address cannot be the same as toAddress " +
-          changeAddress
-      );
+      throw new Error("Change address cannot be the same as toAddress");
     }
-    if (changeAddressAssets === toAddress) {
-      throw Error(
-        "Wallet.send change address for assets cannot be the same as toAddress " +
-          changeAddressAssets
-      );
-    }
-    const props: ISendInternalProps = {
-      fromAddressObjects: this.addressObjects,
-      amount,
+    const transaction = new Transaction({
       assetName,
-      baseCurrency: this.baseCurrency,
-      changeAddress,
-      changeAddressAssets,
-      network: this.network,
-      rpc: this.rpc,
+      amount,
       toAddress,
-    };
-    return Transactor.send(props);
+      wallet: this,
+      /* optional */
+      forcedChangeAddressAssets: options.forcedChangeAddressAssets,
+      forcedUTXOs: options.forcedUTXOs,
+      forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
+    });
+
+    await transaction.loadData();
+
+    const inputs = transaction.getInputs();
+    const outputs = await transaction.getOutputs();
+
+    const privateKeys = transaction.getPrivateKeys();
+
+    const raw = await this.rpc("createrawtransaction", [inputs, outputs]);
+    const signed = Signer.sign(
+      this.network,
+      raw,
+      transaction.getUTXOs(),
+      privateKeys
+    );
+
+    try {
+      //   const id = await this.rpc("sendrawtransaction", [signed]);
+      const sendResult: ISendResult = {
+        transactionId: null,
+        debug: {
+          amount,
+          assetName,
+          fee: transaction.getFee(),
+          inputs,
+          outputs,
+          privateKeys,
+          rawUnsignedTransaction: raw,
+          xnaChangeAmount: transaction.getBaseCurrencyChange(),
+          xnaAmount: transaction.getBaseCurrencyAmount(),
+          signedTransaction: signed,
+          UTXOs: transaction.getUTXOs(),
+          walletMempool: transaction.getWalletMempool(),
+        },
+      };
+      return sendResult;
+    } catch (e) {
+      throw new Error(
+        "Error while sending, perhaps you have pending transaction? Please try again."
+      );
+    }
   }
 
-  async getAssets() {
-    const includeAssets = true;
-    const params = [{ addresses: this.getAddresses() }, includeAssets];
-    const balance = (await this.rpc(methods.getaddressbalance, params)) as any;
+  /**
+   * Does all the heavy lifting regarding creating a transaction
+   * but it does not broadcast the actual transaction.
+   * Perhaps the user wants to accept the transaction fee?
+   * @param options
+   * @returns An transaction that has not been broadcasted
+   */
+  async createSendManyTransaction(options: {
+    assetName?: string;
+    outputs: { [key: string]: number };
+  }): Promise<ISendResult> {
+    let { assetName } = options;
 
-    //Remove baseCurrency
-    const result = balance.filter((obj) => {
-      return obj.assetName !== this.baseCurrency;
+    if (!assetName) {
+      assetName = this.baseCurrency;
+    }
+
+    //Validation
+    if (!options.outputs) {
+      throw Error("Wallet.createSendManyTransaction outputs is mandatory");
+    } else if (Object.keys(options.outputs).length === 0) {
+      throw new ValidationError(
+        "outputs is mandatory, shoud be an object with address as keys and amounts (numbers) as values"
+      );
+    }
+    const changeAddress = await this.getChangeAddress();
+
+    const toAddresses = Object.keys(options.outputs);
+    if (toAddresses.includes(changeAddress)) {
+      throw new Error("You cannot send to your current change address");
+    }
+    const transaction = new SendManyTransaction({
+      assetName,
+      outputs: options.outputs,
+      wallet: this,
     });
-    return result;
+
+    await transaction.loadData();
+
+    const inputs = transaction.getInputs();
+    const outputs = await transaction.getOutputs();
+
+    const privateKeys = transaction.getPrivateKeys();
+
+    const raw = await this.rpc("createrawtransaction", [inputs, outputs]);
+    const signed = Signer.sign(
+      this.network,
+      raw,
+      transaction.getUTXOs(),
+      privateKeys
+    );
+
+    try {
+      const sendResult: ISendResult = {
+        transactionId: null,
+        debug: {
+          amount: transaction.getAmount(),
+          assetName,
+          fee: transaction.getFee(),
+          inputs,
+          outputs,
+          privateKeys,
+          rawUnsignedTransaction: raw,
+          xnaChangeAmount: transaction.getBaseCurrencyChange(),
+          xnaAmount: transaction.getBaseCurrencyAmount(),
+          signedTransaction: signed,
+          UTXOs: transaction.getUTXOs(),
+          walletMempool: transaction.getWalletMempool(),
+        },
+      };
+      return sendResult;
+    } catch (e) {
+      throw new Error(
+        "Error while sending, perhaps you have pending transaction? Please try again."
+      );
+    }
+  }
+
+  /**
+   * This method checks if an UTXO is being spent in the mempool.
+   * rpc getaddressutxos will list available UTXOs on the chain.
+   * BUT an UTXO can be being spent by a transaction in mempool.
+   *
+   * @param utxo
+   * @returns boolean true if utxo is being spent in mempool, false if not
+   */
+  async isSpentInMempool(utxo: IUTXO) {
+    const details = await this.rpc("gettxout", [utxo.txid, utxo.outputIndex]);
+    return details === null;
+  }
+  async getAssets() {
+    return getAssets(this, this.getAddresses());
   }
   async getBalance() {
-    const includeAssets = false;
-    const params = [{ addresses: this.getAddresses() }, includeAssets];
-    const balance = (await this.rpc(methods.getaddressbalance, params)) as any;
+    const a = this.getAddresses();
+    return getBalance(this, a);
+  }
+  async convertMempoolEntryToUTXO(mempoolEntry: IMempoolEntry): Promise<IUTXO> {
+    //Mempool items might not have the script attbribute, we need it
+    const out = await this.rpc("gettxout", [
+      mempoolEntry.txid,
+      mempoolEntry.index,
+      true,
+    ]);
 
-    return balance.balance / ONE_FULL_COIN;
+    const utxo = {
+      ...mempoolEntry,
+      script: out.scriptPubKey.hex,
+      outputIndex: mempoolEntry.index,
+      value: mempoolEntry.satoshis / 1e8,
+    };
+    return utxo;
+  }
+
+  /**
+   * Get list of spendable UTXOs in mempool.
+   * Note: a UTXO in mempool can already be "being spent"
+   * @param mempool (optional)
+   * @returns list of UTXOs in mempool ready to spend
+   */
+  async getUTXOsInMempool(mempool?: IMempoolEntry[]) {
+    //If no mempool argument, fetch mempool
+    let _mempool = mempool;
+    if (!_mempool) {
+      const m = await this.getMempool();
+      _mempool = m;
+    }
+    const mySet = new Set();
+    for (let item of _mempool) {
+      if (!item.prevtxid) {
+        continue;
+      }
+      const value = item.prevtxid + "_" + item.prevout;
+      mySet.add(value);
+    }
+
+    const spendable = _mempool.filter((item) => {
+      if (item.satoshis < 0) {
+        return false;
+      }
+      const value = item.txid + "_" + item.index;
+      return mySet.has(value) === false;
+    });
+
+    const utxos: IUTXO[] = [];
+
+    for (let s of spendable) {
+      const u = await this.convertMempoolEntryToUTXO(s);
+      utxos.push(u);
+    }
+    return utxos;
   }
 }
 
 export default {
   createInstance,
+  getBaseCurrencyByNetwork,
 };
 export async function createInstance(options: IOptions): Promise<Wallet> {
   const wallet = new Wallet();
   await wallet.init(options);
   return wallet;
-}
-
-export function getBaseCurrencyByNetwork(network: ChainType): string {
-  const map = {
-    evr: "EVR",
-    "evr-test": "EVR",
-    xna: "XNA",
-    "xna-test": "XNA",
-  };
-  return map[network];
-}
-export interface IOptions {
-  mnemonic: string;
-  minAmountOfAddresses?: number;
-  network?: ChainType;
-  rpc_username?: string;
-  rpc_password?: string;
-  rpc_url?: string;
-
-  offlineMode?: boolean;
 }
