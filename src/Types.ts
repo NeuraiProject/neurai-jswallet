@@ -217,9 +217,9 @@ export interface IUser {
   profileImageURL?: string;
 }
 export interface IConfig {
-  raven_username: string;
-  raven_password: string;
-  raven_url: string;
+  neurai_username: string;
+  neurai_password: string;
+  neurai_url: string;
   network: string;
 }
 

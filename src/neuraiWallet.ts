@@ -24,8 +24,8 @@ import { getAssets } from "./getAssets";
 
 export { Transaction };
 export { SendManyTransaction };
-const URL_NEURAI_MAINNET = "https://xna-main.neurai.org/rpc";
-const URL_NEURAI_TESTNET = "https://xna-testnet.neurai.org/rpc";
+const URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
+const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
 const URL_EVRMORE_MAINNET = "https://evr-rpc-mainnet.ting.finance/rpc";
 
 //Avoid singleton (anti-pattern)
