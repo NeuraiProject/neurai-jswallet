@@ -33,6 +33,7 @@ const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
 export class Wallet {
   rpc = getRPC("anonymous", "anonymous", URL_NEURAI_MAINNET);
   _mnemonic = "";
+  _passphrase = "";
   network: ChainType = "xna";
   addressObjects: Array<IAddressMetaData> = [];
   receiveAddress = "";
@@ -100,9 +101,10 @@ export class Wallet {
 
     this.rpc = getRPC(username, password, url);
     this._mnemonic = options.mnemonic;
+    this._passphrase = options.passphrase || "";
 
     //Generating the hd key is slow, so we re-use the object
-    const hdKey = NeuraiKey.getHDKey(this.network, this._mnemonic);
+    const hdKey = NeuraiKey.getHDKey(this.network, this._mnemonic, this._passphrase);
     const coinType = NeuraiKey.getCoinType(this.network);
     const ACCOUNT = 0;
 

@@ -252,7 +252,7 @@ export interface IOptions {
   rpc_username?: string;
   rpc_password?: string;
   rpc_url?: string;
-
+  passphrase?: string;
   offlineMode?: boolean;
 }
 

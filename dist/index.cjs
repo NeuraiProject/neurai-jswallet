@@ -559,8 +559,9 @@ class $25c85390e2ab99a4$export$bcca3ea514774656 {
         }
         this.rpc = (0, $cy7CX$neuraiprojectneurairpc.getRPC)(username, password, url);
         this._mnemonic = options.mnemonic;
+        this._passphrase = options.passphrase || "";
         //Generating the hd key is slow, so we re-use the object
-        const hdKey = (0, ($parcel$interopDefault($cy7CX$neuraiprojectneuraikey))).getHDKey(this.network, this._mnemonic);
+        const hdKey = (0, ($parcel$interopDefault($cy7CX$neuraiprojectneuraikey))).getHDKey(this.network, this._mnemonic, this._passphrase);
         const coinType = (0, ($parcel$interopDefault($cy7CX$neuraiprojectneuraikey))).getCoinType(this.network);
         const ACCOUNT = 0;
         const minAmountOfAddresses = Number.isFinite(options.minAmountOfAddresses) ? options.minAmountOfAddresses : 0;
@@ -917,6 +918,7 @@ class $25c85390e2ab99a4$export$bcca3ea514774656 {
     constructor(){
         this.rpc = (0, $cy7CX$neuraiprojectneurairpc.getRPC)("anonymous", "anonymous", $25c85390e2ab99a4$var$URL_NEURAI_MAINNET);
         this._mnemonic = "";
+        this._passphrase = "";
         this.network = "xna";
         this.addressObjects = [];
         this.receiveAddress = "";

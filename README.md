@@ -150,6 +150,39 @@ console.log("Sending", result.transactionId);
 
 ```
 
+## Passphrase Support (BIP39 25th Word)
+
+For enhanced security, you can use an optional passphrase (also known as the "25th word"). 
+This creates a completely different set of addresses from the same mnemonic.
+
+**Important**: If you lose your passphrase, you cannot recover your wallet even with the mnemonic!
+
+```javascript
+import NeuraiWallet from "@neuraiproject/neurai-jswallet";
+
+const mnemonic = "your twelve word mnemonic phrase here";
+const passphrase = "my secret passphrase"; // Optional but highly secure
+
+// Create wallet with passphrase
+const wallet = await NeuraiWallet.createInstance({
+  mnemonic: mnemonic,
+  network: "xna-test",
+  passphrase: passphrase  // This creates a completely different wallet
+});
+
+// Without passphrase (or empty string) - creates different addresses
+const walletNoPass = await NeuraiWallet.createInstance({
+  mnemonic: mnemonic,
+  network: "xna-test"
+  // No passphrase = different wallet than above
+});
+```
+
+**Use cases for passphrase:**
+- Extra layer of security beyond the mnemonic
+- Create multiple wallets from a single mnemonic
+- Plausible deniability (different passphrases = different wallets)
+
 ## API
 
 When you create your instance of a wallet you can specify some stuff.
@@ -163,6 +196,7 @@ export interface IOptions {
     rpc_username?: string;
     rpc_password?: string;
     rpc_url?: string;
+    passphrase?: string;
 }
 ```
 

@@ -119,6 +119,7 @@ interface IOptions {
     rpc_username?: string;
     rpc_password?: string;
     rpc_url?: string;
+    passphrase?: string;
     offlineMode?: boolean;
 }
 interface IMempoolEntry {
@@ -214,6 +215,7 @@ declare function getBaseCurrencyByNetwork(network: ChainType): string;
 export class Wallet {
     rpc: (method: string, params: any[]) => Promise<any>;
     _mnemonic: string;
+    _passphrase: string;
     network: ChainType;
     addressObjects: Array<IAddressMetaData>;
     receiveAddress: string;
