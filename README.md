@@ -13,7 +13,6 @@ EXPERIMENTAL.
 
 This lib needs a lot of testing before being used in production.
 Only use on mainnet if you "play around".
-This lib supports EVR as well (see section at the end)
 ### 
 ## Example code
 
@@ -97,7 +96,7 @@ const wallet = await NeuraiWallet.createInstance({
 //index.mjs very important that file extension is .mjs
 import NeuraiWallet from "@neuraiproject/neurai-jswallet";
 
-//This wallet belongs to account "Crazy Cat" on https://testnet.ting.finance/signin/
+//This wallet belongs to account "Crazy Cat" on https://rpc-testnet.neurai.org/signin/
 const options = {
   mnemonic:
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace",
@@ -107,7 +106,7 @@ const wallet = await NeuraiWallet.createInstance(options);
 const addy = await wallet.getReceiveAddress();
 console.log("My receive address", addy);
 
-//Send 100 XNA to Barry Crump on https://testnet.ting.finance/
+//Send 100 XNA to Barry Crump on https://rpc-testnet.neurai.org/
 await wallet.send({
   //Send 100 XNA
   toAddress: "mhBKhj5FxzBu1h8U6pSB16pwmjP7xo4ehG",
@@ -115,7 +114,7 @@ await wallet.send({
   assetName:"XNA",
 });
 
-//Send 313 BUTTER tokens to Barry Crump on https://testnet.ting.finance/
+//Send 313 BUTTER tokens to Barry Crump on https://rpc-testnet.neurai.org/
 const transactionId = await wallet.send({
   assetName: "BUTTER",
   amount: 313,
@@ -130,7 +129,7 @@ console.log("Sending", transactionId);
 //index.mjs very important that file extension is .mjs
 import NeuraiWallet from "@neuraiproject/neurai-jswallet";
 
-//This wallet belongs to account "Crazy Cat" on https://testnet.ting.finance/signin/
+//This wallet belongs to account "Crazy Cat" on https://rpc-testnet.neurai.org/signin/
 const options = {
   mnemonic:
     "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace",
@@ -151,27 +150,16 @@ console.log("Sending", result.transactionId);
 
 ```
 
-## Evrmore
-
-To support EVR instead of XNA
-Create an instance of wallet and set baseCurrency
-
-```
-wallet.setBaseCurrency("EVR");
-```
-
 ## API
 
 When you create your instance of a wallet you can specify some stuff.
-
-You can set network to be something else than XNA, for example EVR.
 
 You can specify your own RPC node URL and username/password.
 
 ```
 export interface IOptions {
     mnemonic: string;
-    network?: ChainType; (that is "xna" | "xna-test" | "evr" | "evr-test")
+    network?: ChainType; (that is "xna" | "xna-test")
     rpc_username?: string;
     rpc_password?: string;
     rpc_url?: string;

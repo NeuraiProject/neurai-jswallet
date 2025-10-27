@@ -297,8 +297,6 @@ function $c7db79d953d79f02$var$getEnoughUTXOs(utxos, asset, amount) {
     return result;
 }
 function $c7db79d953d79f02$var$normaliseFee(network, fee) {
-    //It seems there is a bug causing the EVR fees to be 1300 times higher than they should be
-    if (network === "evr" && fee > 1) return fee / 100;
     return fee;
 }
 
@@ -446,8 +444,6 @@ class $c3dba3dbad356cd6$export$febc5573c75cefb0 {
 
 function $b986b05eb12d057a$export$af0c167f1aa2328f(network) {
     const map = {
-        evr: "EVR",
-        "evr-test": "EVR",
         xna: "XNA",
         "xna-test": "XNA"
     };
@@ -497,7 +493,6 @@ async function $0b10d1d1bbb55c3e$export$ab187dba3e955af9(wallet, addresses) {
 
 const $14d29c831c740206$var$URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const $14d29c831c740206$var$URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
-const $14d29c831c740206$var$URL_EVRMORE_MAINNET = "https://evr-rpc-mainnet.ting.finance/rpc";
 class $14d29c831c740206$export$bcca3ea514774656 {
     setBaseCurrency(currency) {
         this.baseCurrency = currency;
@@ -535,7 +530,6 @@ class $14d29c831c740206$export$bcca3ea514774656 {
         if (options.offlineMode === true) this.offlineMode = true;
         if (!options.mnemonic) throw Error("option.mnemonic is mandatory");
         if (options.network === "xna-test") url = $14d29c831c740206$var$URL_NEURAI_TESTNET;
-        if (options.network === "evr") url = $14d29c831c740206$var$URL_EVRMORE_MAINNET;
         url = options.rpc_url || url;
         password = options.rpc_password || password;
         username = options.rpc_username || username;
@@ -908,8 +902,7 @@ class $14d29c831c740206$export$bcca3ea514774656 {
         this.receiveAddress = "";
         this.changeAddress = "";
         this.addressPosition = 0;
-        this.baseCurrency = "XNA" //Default is XNA but it could be EVR
-        ;
+        this.baseCurrency = "XNA";
         this.offlineMode = false;
     }
 }

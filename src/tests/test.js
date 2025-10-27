@@ -16,26 +16,6 @@ it("Network xna should give base currency XNA", async () => {
   expect(baseCurrency).to.equal("XNA");
 });
 
-it("Network evr should give base currency EVR", async () => {
-  const mnemonic =
-    "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
-
-  const network = "evr";
-  try {
-    const wallet = await NeuraiWallet.createInstance({
-      mnemonic,
-      network,
-      offlineMode: true,
-    });
-
-    const baseCurrency = wallet.baseCurrency;
-
-    expect(baseCurrency).to.equal("EVR");
-  } catch (e) {
-    console.log("SUPER ERROR", e);
-  }
-});
-
 it("Network xna-test should give base currency XNA", async () => {
   const network = "xna-test";
   const wallet = await NeuraiWallet.createInstance({
@@ -46,21 +26,6 @@ it("Network xna-test should give base currency XNA", async () => {
 
   const baseCurrency = wallet.baseCurrency;
   expect(baseCurrency).to.equal("XNA");
-});
-
-it("Network evr-test should give base currency EVR", async () => {
-  const mnemonic =
-    "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace";
-
-  const network = "evr-test";
-  const wallet = await NeuraiWallet.createInstance({
-    mnemonic,
-    network,
-    offlineMode: true,
-  });
-
-  const baseCurrency = wallet.baseCurrency;
-  expect(baseCurrency).to.equal("EVR");
 });
 
 it("get balance", async () => {
