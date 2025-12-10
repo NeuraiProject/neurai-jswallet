@@ -213,7 +213,7 @@ export class Transaction {
 }
 declare function getBaseCurrencyByNetwork(network: ChainType): string;
 export class Wallet {
-    rpc: (method: string, params: any[]) => Promise<any>;
+    rpc: (method: string, params: any[]) => Promise<unknown>;
     _mnemonic: string;
     _passphrase: string;
     network: ChainType;
@@ -250,7 +250,7 @@ export class Wallet {
      * @returns UTXOs for assets
      */
     getAssetUTXOs(assetName?: string): Promise<IUTXO[]>;
-    getUTXOs(): Promise<any>;
+    getUTXOs(): Promise<IUTXO[]>;
     getPrivateKeyByAddress(address: string): string;
     sendRawTransaction(raw: string): Promise<string>;
     send(options: ISend): Promise<ISendResult>;

@@ -94,7 +94,7 @@ export class SendManyTransaction {
 
     this.walletMempool = await mempoolPromise;
     const assetUTXOs = await assetUTXOsPromise;
-    const baseCurrencyUTXOs = await baseCurencyUTXOsPromise;
+    const baseCurrencyUTXOs = (await baseCurencyUTXOsPromise) as IUTXO[];
     this.feerate = await feeRatePromise;
 
     const mempoolUTXOs = await this.wallet.getUTXOsInMempool(
@@ -335,9 +335,9 @@ export class SendManyTransaction {
     const defaultFee = 0.02;
     try {
       const confirmationTarget = 20;
-      const response = await this.wallet.rpc("estimatesmartfee", [
+      const response = (await this.wallet.rpc("estimatesmartfee", [
         confirmationTarget,
-      ]);
+      ])) as any;
       //Errors can occur on testnet, not enough info to calculate fee
       if (!response.errors) {
         return normaliseFee(this.wallet.network, response.feerate);

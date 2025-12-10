@@ -274,12 +274,12 @@ export class Wallet {
       { addresses: this.getAddresses(), chainInfo, assetName: _assetName },
     ];
 
-    return this.rpc(methods.getaddressutxos, params);
+    return this.rpc(methods.getaddressutxos, params) as Promise<IUTXO[]>;
   }
-  async getUTXOs() {
+  async getUTXOs(): Promise<IUTXO[]> {
     return this.rpc(methods.getaddressutxos, [
       { addresses: this.getAddresses() },
-    ]);
+    ]) as Promise<IUTXO[]>;
   }
 
   getPrivateKeyByAddress(address: string) {
@@ -291,7 +291,7 @@ export class Wallet {
     return f.WIF;
   }
   async sendRawTransaction(raw: string): Promise<string> {
-    return this.rpc("sendrawtransaction", [raw]);
+    return this.rpc("sendrawtransaction", [raw]) as Promise<string>;
   }
 
   async send(options: ISend): Promise<ISendResult> {
@@ -300,9 +300,9 @@ export class Wallet {
     //Important, do not swallow the exceptions/errors of createTransaction, let them fly
     const sendResult: ISendResult = await this.createTransaction(options);
 
-    const id = await this.rpc("sendrawtransaction", [
+    const id = (await this.rpc("sendrawtransaction", [
       sendResult.debug.signedTransaction,
-    ]);
+    ])) as string;
     sendResult.transactionId = id;
 
     return sendResult;
@@ -322,9 +322,9 @@ export class Wallet {
     //Important, do not swallow the exceptions/errors of createSendManyTransaction, let them fly
 
     try {
-      const id = await this.rpc("sendrawtransaction", [
+      const id = (await this.rpc("sendrawtransaction", [
         sendResult.debug.signedTransaction,
-      ]);
+      ])) as string;
       sendResult.transactionId = id;
 
       return sendResult;
@@ -379,7 +379,7 @@ export class Wallet {
 
     const privateKeys = transaction.getPrivateKeys();
 
-    const raw = await this.rpc("createrawtransaction", [inputs, outputs]);
+    const raw = (await this.rpc("createrawtransaction", [inputs, outputs])) as string;
     const signed = Signer.sign(
       this.network,
       raw,
@@ -458,7 +458,7 @@ export class Wallet {
 
     const privateKeys = transaction.getPrivateKeys();
 
-    const raw = await this.rpc("createrawtransaction", [inputs, outputs]);
+    const raw = (await this.rpc("createrawtransaction", [inputs, outputs])) as string;
     const signed = Signer.sign(
       this.network,
       raw,
@@ -513,11 +513,11 @@ export class Wallet {
   }
   async convertMempoolEntryToUTXO(mempoolEntry: IMempoolEntry): Promise<IUTXO> {
     //Mempool items might not have the script attbribute, we need it
-    const out = await this.rpc("gettxout", [
+    const out = (await this.rpc("gettxout", [
       mempoolEntry.txid,
       mempoolEntry.index,
       true,
-    ]);
+    ])) as any;
 
     const utxo = {
       ...mempoolEntry,

@@ -4,7 +4,7 @@ import Signer from "@neuraiproject/neurai-sign-transaction";
 !!Signer.sign; //"Idiocracy" but prevents bundle tools such as PARCEL to strip this dependency out on build.
 
 import { Wallet } from "../neuraiWallet";
-import { IInput, SweepResult } from "../Types";
+import { IInput, IUTXO, SweepResult } from "../Types";
 import { shortenNumber } from "./SendManyTransaction";
 
 //sight rate burger maid melody slogan attitude gas account sick awful hammer
@@ -29,13 +29,13 @@ export async function sweep(
   const obj = {
     addresses: [privateKey.address],
   };
-  const baseCurrencyUTXOs = await rpc("getaddressutxos", [obj]);
+  const baseCurrencyUTXOs = (await rpc("getaddressutxos", [obj])) as IUTXO[];
   const obj2 = {
     addresses: [privateKey.address],
     assetName: "*",
   };
 
-  const assetUTXOs = await rpc("getaddressutxos", [obj2]);
+  const assetUTXOs = (await rpc("getaddressutxos", [obj2])) as IUTXO[];
   const UTXOs = assetUTXOs.concat(baseCurrencyUTXOs);
   result.UTXOs = UTXOs;
   //Create a raw transaction with ALL UTXOs
@@ -92,7 +92,7 @@ export async function sweep(
     return input;
   });
   //Create raw transaction
-  const rawHex = await rpc("createrawtransaction", [inputs, outputs]);
+  const rawHex = (await rpc("createrawtransaction", [inputs, outputs])) as string;
 
   const privateKeys = {
     [privateKey.address]: WIF,
@@ -100,7 +100,7 @@ export async function sweep(
   const signedHex = Signer.sign(wallet.network, rawHex, UTXOs, privateKeys);
   result.rawTransaction = signedHex;
   if (onlineMode === true) {
-    result.transactionId = await rpc("sendrawtransaction", [signedHex]);
+    result.transactionId = (await rpc("sendrawtransaction", [signedHex])) as string;
   }
 
   return result;
