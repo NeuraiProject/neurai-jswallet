@@ -95,10 +95,10 @@ class $95d3c5cb954e3eff$export$a0aa368c31ae6e6c {
         // which in turn affects the transaction size itself.
         // This is a chicken-and-egg situation, requiring an initial size estimate.
         const utxos = this.predictUTXOs();
-        const baseSize = 400;
-        const assumedSizePerUTXO = 320; //Add 320 bytes to the size per UTXO we use
-        const assumedSizePerOutput = 160;
-        const bytes = (utxos.length + 1) * assumedSizePerUTXO + Object.keys(this.outputs).length * assumedSizePerOutput;
+        const baseSize = 10; // Version (4) + input count (1) + output count (1) + locktime (4)
+        const assumedSizePerUTXO = 148; // ~148 bytes per input (txid + vout + scriptSig + sequence)
+        const assumedSizePerOutput = 34; // ~34 bytes per output (value + scriptPubKey)
+        const bytes = utxos.length * assumedSizePerUTXO + Object.keys(this.outputs).length * assumedSizePerOutput;
         const kb = (baseSize + bytes) / 1024;
         return kb;
     }
