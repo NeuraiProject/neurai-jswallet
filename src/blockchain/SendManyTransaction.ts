@@ -35,7 +35,7 @@ export class SendManyTransaction {
 
   private assetName: string;
   // Fee rate used by getFee(): XNA per KB
-  feerate = 0.002;
+  feerate = 0.01;
 
   private wallet: Wallet;
   private outputs: any;
