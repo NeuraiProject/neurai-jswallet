@@ -59,31 +59,13 @@ export async function sweep(
 
   const outputs = {};
 
-  // Fee is calculated similarly to SendManyTransaction: fee = sizeKB * feerate
-  // Using fixed feerate: XNA per KB
-  const feerate = 0.0002;
-  const baseSize = 400;
-  const assumedSizePerUTXO = 320;
-  const assumedSizePerOutput = 160;
-  const bytes =
-    (UTXOs.length + 1) * assumedSizePerUTXO +
-    keys.length * assumedSizePerOutput;
-  const sizeKB = (baseSize + bytes) / 1024;
-  const fee = sizeKB * feerate;
-
-  const baseCurrencySatoshis = balanceObject[wallet.baseCurrency] || 0;
-  const baseCurrencyAmount = baseCurrencySatoshis / 1e8;
-  if (baseCurrencyAmount <= fee) {
-    result.errorDescription =
-      "Not enough " + wallet.baseCurrency + " to pay transaction fee";
-    return result;
-  }
+  const fixedFee = 0.02; // should do for now
   keys.map((assetName, index) => {
     const address = wallet.getAddresses()[index];
     const amount = balanceObject[assetName] / 1e8;
 
     if (assetName === wallet.baseCurrency) {
-      outputs[address] = shortenNumber(amount - fee);
+      outputs[address] = shortenNumber(amount - fixedFee);
     } else {
       outputs[address] = {
         transfer: {
