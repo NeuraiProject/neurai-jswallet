@@ -35,7 +35,7 @@ export class SendManyTransaction {
 
   private assetName: string;
   // Fee rate used by getFee(): XNA per KB
-  feerate = 0.01;
+ feerate = 1
 
   private wallet: Wallet;
   private outputs: any;
@@ -333,8 +333,22 @@ export class SendManyTransaction {
     return result;
   }
   async getFeeRate() {
-    // Default/fixed feerate requested by the library: XNA per KB
-    return 0.002;
+    const defaultFee = 0.01;
+    try {
+      const confirmationTarget = 20;
+      const response = (await this.wallet.rpc("estimatesmartfee", [
+        confirmationTarget,
+      ])) as any;
+      //Errors can occur on testnet, not enough info to calculate fee
+      if (!response.errors) {
+        return normaliseFee(this.wallet.network, response.feerate);
+      } else {
+        return defaultFee;
+      }
+    } catch (e) {
+      //Might occure errors on testnet when calculating fees
+      return defaultFee;
+    }
   }
 }
 

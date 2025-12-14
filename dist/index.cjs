@@ -64,7 +64,7 @@ function $9ba0f9a5c47c04f2$export$2e2262a44ac61957(originalArray) {
 class $95d3c5cb954e3eff$export$a0aa368c31ae6e6c {
     constructor(options){
         // Fee rate used by getFee(): XNA per KB
-        this.feerate = 0.0002;
+        this.feerate = 1;
         this.walletMempool = [];
         this.forcedUTXOs = [];
         this.forcedChangeAddressBaseCurrency = "";
@@ -262,8 +262,19 @@ class $95d3c5cb954e3eff$export$a0aa368c31ae6e6c {
         return result;
     }
     async getFeeRate() {
-        // Default/fixed feerate requested by the library: XNA per KB
-        return 0.0002;
+        const defaultFee = 0.01;
+        try {
+            const confirmationTarget = 20;
+            const response = await this.wallet.rpc("estimatesmartfee", [
+                confirmationTarget
+            ]);
+            //Errors can occur on testnet, not enough info to calculate fee
+            if (!response.errors) return $95d3c5cb954e3eff$var$normaliseFee(this.wallet.network, response.feerate);
+            else return defaultFee;
+        } catch (e) {
+            //Might occure errors on testnet when calculating fees
+            return defaultFee;
+        }
     }
 }
 function $95d3c5cb954e3eff$export$1778fb2d99201af(number) {
