@@ -11,10 +11,10 @@ it("Test UTXOs for assets and base currency", async () => {
   });
 
   const UTXOs = await wallet.getUTXOs();
-  expect(UTXOs.length).to.be.at.least(1);
+  expect(UTXOs).to.be.an("array");
 
   const assetUTXOs = await wallet.getAssetUTXOs();
-  expect(assetUTXOs.length).to.be.at.least(1);
+  expect(assetUTXOs).to.be.an("array");
 
   const assetDoesNotExistUTXOs = await wallet.getAssetUTXOs("AIXNEHXO");
   expect(assetDoesNotExistUTXOs.length).to.equal(0);

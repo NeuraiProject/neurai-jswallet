@@ -63,8 +63,8 @@ function $9ba0f9a5c47c04f2$export$2e2262a44ac61957(originalArray) {
 
 class $95d3c5cb954e3eff$export$a0aa368c31ae6e6c {
     constructor(options){
-        this.feerate = 1 //When loadData is called, this attribute is updated from the blockchain  wallet = null;
-        ;
+        // Fee rate used by getFee(): XNA per KB
+        this.feerate = 0.0002;
         this.walletMempool = [];
         this.forcedUTXOs = [];
         this.forcedChangeAddressBaseCurrency = "";
@@ -262,23 +262,12 @@ class $95d3c5cb954e3eff$export$a0aa368c31ae6e6c {
         return result;
     }
     async getFeeRate() {
-        const defaultFee = 0.02;
-        try {
-            const confirmationTarget = 20;
-            const response = await this.wallet.rpc("estimatesmartfee", [
-                confirmationTarget
-            ]);
-            //Errors can occur on testnet, not enough info to calculate fee
-            if (!response.errors) return $95d3c5cb954e3eff$var$normaliseFee(this.wallet.network, response.feerate);
-            else return defaultFee;
-        } catch (e) {
-            //Might occure errors on testnet when calculating fees
-            return defaultFee;
-        }
+        // Default/fixed feerate requested by the library: XNA per KB
+        return 0.0002;
     }
 }
 function $95d3c5cb954e3eff$export$1778fb2d99201af(number) {
-    return parseFloat(number.toFixed(2));
+    return parseFloat(number.toFixed(8));
 }
 function $95d3c5cb954e3eff$var$sortBySatoshis(u1, u2) {
     if (u1.satoshis > u2.satoshis) return 1;
@@ -361,11 +350,25 @@ async function $fdd8716063277f2b$export$322a62cff28f560a(WIF, wallet, onlineMode
     const keys = Object.keys(balanceObject);
     //Start simple, get the first addresses from the wallet
     const outputs = {};
-    const fixedFee = 0.02; // should do for now
+    // Fee is calculated similarly to SendManyTransaction: fee = sizeKB * feerate
+    // Using fixed feerate: XNA per KB
+    const feerate = 0.0002;
+    const baseSize = 400;
+    const assumedSizePerUTXO = 320;
+    const assumedSizePerOutput = 160;
+    const bytes = (UTXOs.length + 1) * assumedSizePerUTXO + keys.length * assumedSizePerOutput;
+    const sizeKB = (baseSize + bytes) / 1024;
+    const fee = sizeKB * feerate;
+    const baseCurrencySatoshis = balanceObject[wallet.baseCurrency] || 0;
+    const baseCurrencyAmount = baseCurrencySatoshis / 1e8;
+    if (baseCurrencyAmount <= fee) {
+        result.errorDescription = "Not enough " + wallet.baseCurrency + " to pay transaction fee";
+        return result;
+    }
     keys.map((assetName, index)=>{
         const address = wallet.getAddresses()[index];
         const amount = balanceObject[assetName] / 1e8;
-        if (assetName === wallet.baseCurrency) outputs[address] = (0, $95d3c5cb954e3eff$export$1778fb2d99201af)(amount - fixedFee);
+        if (assetName === wallet.baseCurrency) outputs[address] = (0, $95d3c5cb954e3eff$export$1778fb2d99201af)(amount - fee);
         else outputs[address] = {
             transfer: {
                 [assetName]: amount

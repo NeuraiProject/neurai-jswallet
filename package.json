@@ -1,6 +1,6 @@
 {
   "name": "@neuraiproject/neurai-jswallet",
-  "version": "0.12.4",
+  "version": "0.12.5",
   "description": "Neurai JavaScript wallet library",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -37,7 +37,7 @@
   "homepage": "https://github.com/neuraiproject/neurai-jswallet#readme",
   "devDependencies": {
     "@parcel/packager-ts": "^2.14.4",
-    "@parcel/transformer-typescript-types": "^2.14.4",
+    "@parcel/transformer-typescript-types": "2.16.3",
     "@types/node": "^20.8.0",
     "chai": "^4.3.10",
     "mocha": "^10.2.0",

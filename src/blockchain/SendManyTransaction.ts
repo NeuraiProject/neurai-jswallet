@@ -34,7 +34,8 @@ export class SendManyTransaction {
   _allUTXOs: IUTXO[]; //all UTXOs that we know of
 
   private assetName: string;
-  feerate = 1; //When loadData is called, this attribute is updated from the blockchain  wallet = null;
+  // Fee rate used by getFee(): XNA per KB
+  feerate = 0.0002;
 
   private wallet: Wallet;
   private outputs: any;
@@ -332,28 +333,14 @@ export class SendManyTransaction {
     return result;
   }
   async getFeeRate() {
-    const defaultFee = 0.02;
-    try {
-      const confirmationTarget = 20;
-      const response = (await this.wallet.rpc("estimatesmartfee", [
-        confirmationTarget,
-      ])) as any;
-      //Errors can occur on testnet, not enough info to calculate fee
-      if (!response.errors) {
-        return normaliseFee(this.wallet.network, response.feerate);
-      } else {
-        return defaultFee;
-      }
-    } catch (e) {
-      //Might occure errors on testnet when calculating fees
-      return defaultFee;
-    }
+    // Default/fixed feerate requested by the library: XNA per KB
+    return 0.0002;
   }
 }
 
-//Return the number with max 2 decimals
+//Return the number with max 8 decimals
 export function shortenNumber(number) {
-  return parseFloat(number.toFixed(2));
+  return parseFloat(number.toFixed(8));
 }
 
 function sortBySatoshis(u1: IUTXO, u2: IUTXO) {
