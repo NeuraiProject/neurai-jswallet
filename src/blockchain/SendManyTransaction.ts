@@ -35,7 +35,7 @@ export class SendManyTransaction {
 
   private assetName: string;
   // Fee rate used by getFee(): XNA per KB
- feerate = 1
+ feerate = 0.015
 
   private wallet: Wallet;
   private outputs: any;
@@ -333,7 +333,7 @@ export class SendManyTransaction {
     return result;
   }
   async getFeeRate() {
-    const defaultFee = 0.01;
+    const defaultFee = 0.015;
     try {
       const confirmationTarget = 20;
       const response = (await this.wallet.rpc("estimatesmartfee", [

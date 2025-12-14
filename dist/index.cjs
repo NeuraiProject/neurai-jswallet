@@ -64,7 +64,7 @@ function $9ba0f9a5c47c04f2$export$2e2262a44ac61957(originalArray) {
 class $95d3c5cb954e3eff$export$a0aa368c31ae6e6c {
     constructor(options){
         // Fee rate used by getFee(): XNA per KB
-        this.feerate = 1;
+        this.feerate = 0.015;
         this.walletMempool = [];
         this.forcedUTXOs = [];
         this.forcedChangeAddressBaseCurrency = "";
@@ -262,7 +262,7 @@ class $95d3c5cb954e3eff$export$a0aa368c31ae6e6c {
         return result;
     }
     async getFeeRate() {
-        const defaultFee = 0.01;
+        const defaultFee = 0.015;
         try {
             const confirmationTarget = 20;
             const response = await this.wallet.rpc("estimatesmartfee", [
