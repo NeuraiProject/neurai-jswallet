@@ -109,4 +109,5 @@ typings/
 .parcel-cache
 !/src/tests/*
 !dist/*
+docs
  
