@@ -87,7 +87,10 @@ export class Wallet {
     if (!options.mnemonic) {
       throw Error("option.mnemonic is mandatory");
     }
-    if (options.network === "xna-test") {
+    if (
+      options.network === "xna-test" ||
+      options.network === "xna-legacy-test"
+    ) {
       url = URL_NEURAI_TESTNET;
     }
     url = options.rpc_url || url;

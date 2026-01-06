@@ -1,6 +1,6 @@
 {
   "name": "@neuraiproject/neurai-jswallet",
-  "version": "0.12.10",
+  "version": "0.12.11",
   "description": "Neurai JavaScript wallet library",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
@@ -31,7 +31,7 @@
   "dependencies": {
     "@neuraiproject/neurai-key": "2.8.7",
     "@neuraiproject/neurai-rpc": "0.4.6",
-    "@neuraiproject/neurai-sign-transaction": "1.1.1",
+    "@neuraiproject/neurai-sign-transaction": "1.1.2",
     "parcel": "^2.14.4"
   },
   "homepage": "https://github.com/neuraiproject/neurai-jswallet#readme",

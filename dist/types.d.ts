@@ -6,7 +6,7 @@ interface ISend {
     forcedChangeAddressAssets?: string;
     forcedChangeAddressBaseCurrency?: string;
 }
-type ChainType = "xna" | "xna-test";
+type ChainType = "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test";
 interface IAddressDelta {
     address: string;
     assetName: string;

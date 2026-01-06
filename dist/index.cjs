@@ -465,7 +465,9 @@ class $0757bc65e326b272$export$febc5573c75cefb0 {
 function $e42f6e77e719937d$export$af0c167f1aa2328f(network) {
     const map = {
         xna: "XNA",
-        "xna-test": "XNA"
+        "xna-test": "XNA",
+        "xna-legacy": "XNA",
+        "xna-legacy-test": "XNA"
     };
     return map[network];
 }
@@ -549,7 +551,7 @@ class $25c85390e2ab99a4$export$bcca3ea514774656 {
         if (!options) throw Error("option argument is mandatory");
         if (options.offlineMode === true) this.offlineMode = true;
         if (!options.mnemonic) throw Error("option.mnemonic is mandatory");
-        if (options.network === "xna-test") url = $25c85390e2ab99a4$var$URL_NEURAI_TESTNET;
+        if (options.network === "xna-test" || options.network === "xna-legacy-test") url = $25c85390e2ab99a4$var$URL_NEURAI_TESTNET;
         url = options.rpc_url || url;
         password = options.rpc_password || password;
         username = options.rpc_username || username;

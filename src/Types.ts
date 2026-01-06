@@ -18,7 +18,7 @@ export interface ISend {
   forcedChangeAddressAssets?: string;
   forcedChangeAddressBaseCurrency?: string;
 }
-export type ChainType = "xna" | "xna-test";
+export type ChainType = "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test";
 export interface IAddressDelta {
   address: string;
   assetName: string;

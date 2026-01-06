@@ -9,11 +9,6 @@
   dependencies:
     "@noble/curves" "^1.7.0"
 
-"@hyperbitjs/chains@1.10.2":
-  version "1.10.2"
-  resolved "https://registry.npmjs.org/@hyperbitjs/chains/-/chains-1.10.2.tgz"
-  integrity sha512-p9i5H24OjTBAjTFJ/ji40CW5Mw8lPTMLSOjcJ4Eb6+MuDJv1z/vVAP9TPxSR2XE37/jrhxAcrO1GxNeNGGGmsw==
-
 "@lezer/common@^1.0.0":
   version "1.4.0"
   resolved "https://registry.npmjs.org/@lezer/common/-/common-1.4.0.tgz"
@@ -60,13 +55,12 @@
   resolved "https://registry.npmjs.org/@neuraiproject/neurai-rpc/-/neurai-rpc-0.4.6.tgz"
   integrity sha512-RcYx6sypTEHSsMfKB59Fb+W4uGzgnUk/5PrC7sIcKP2xUPsaTEVL7V0TyUWN6sz6UUpdOxl4V40i6vDl76ytPw==
 
-"@neuraiproject/neurai-sign-transaction@1.1.1":
-  version "1.1.1"
-  resolved "https://registry.npmjs.org/@neuraiproject/neurai-sign-transaction/-/neurai-sign-transaction-1.1.1.tgz"
-  integrity sha512-E20aVHlVtt1mdwBI3ilBoi1eb5w01K3Rzf5Qy+2HbZ9UXu6HZ+71ir583k23hUpBeUh2zj44WQUAuZLHpdeIrQ==
+"@neuraiproject/neurai-sign-transaction@1.1.2":
+  version "1.1.2"
+  resolved "https://registry.npmjs.org/@neuraiproject/neurai-sign-transaction/-/neurai-sign-transaction-1.1.2.tgz"
+  integrity sha512-FhntVdq5v9S6li5vk+oBWgyrCFwQDDP/hnfhM9W+bLvPC+PtM5+SdIol25Xi0haL6SgCjd85rxIc75HIOunr3A==
   dependencies:
     "@bitcoinerlab/secp256k1" "1.2.0"
-    "@hyperbitjs/chains" "1.10.2"
     bitcoinjs-lib "6.1.7"
     ecpair "3.0.0"
 
