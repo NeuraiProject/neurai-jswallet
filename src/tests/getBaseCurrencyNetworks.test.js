@@ -5,4 +5,6 @@ const getBaseCurrencyByNetwork =
 it("getBaseCurrencyByNetwork", async () => {
   expect(getBaseCurrencyByNetwork("xna")).to.equal("XNA");
   expect(getBaseCurrencyByNetwork("xna-test")).to.equal("XNA");
+  expect(getBaseCurrencyByNetwork("xna-pq")).to.equal("XNA");
+  expect(getBaseCurrencyByNetwork("xna-pq-test")).to.equal("XNA");
 });

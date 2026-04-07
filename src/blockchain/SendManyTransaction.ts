@@ -7,6 +7,19 @@ import {
   IUTXO,
 } from "../Types";
 import { removeDuplicates } from "../utils";
+
+const LEGACY_INPUT_VBYTES = 148;
+const PQ_INPUT_VBYTES = 976;
+const LEGACY_OUTPUT_BYTES = 34;
+const PQ_OUTPUT_BYTES = 31;
+
+function isPQAddress(address: string) {
+  return address.startsWith("nq1") || address.startsWith("tnq1");
+}
+
+function isPQScript(script: string) {
+  return script.startsWith("5114");
+}
 /**
  * SendManyTransaction Class
  *
@@ -74,15 +87,16 @@ export class SendManyTransaction {
 
     const utxos = this.predictUTXOs();
 
-    const baseSize = 10; // Version (4) + input count (1) + output count (1) + locktime (4)
-    const assumedSizePerUTXO = 148; // ~148 bytes per input (txid + vout + scriptSig + sequence)
-    const assumedSizePerOutput = 34; // ~34 bytes per output (value + scriptPubKey)
+    const hasPQInputs = utxos.some((utxo) => isPQScript(utxo.script));
+    const baseSize = hasPQInputs ? 12 : 10; // Segwit marker/flag only when witness is present
+    const inputBytes = utxos.reduce((total, utxo) => {
+      return total + (isPQScript(utxo.script) ? PQ_INPUT_VBYTES : LEGACY_INPUT_VBYTES);
+    }, 0);
+    const outputBytes = Object.keys(this.outputs).reduce((total, address) => {
+      return total + (isPQAddress(address) ? PQ_OUTPUT_BYTES : LEGACY_OUTPUT_BYTES);
+    }, 0);
 
-    const bytes =
-      utxos.length * assumedSizePerUTXO +
-      Object.keys(this.outputs).length * assumedSizePerOutput;
-
-    const kb = (baseSize + bytes) / 1024;
+    const kb = (baseSize + inputBytes + outputBytes) / 1024;
 
     return kb;
   }
@@ -297,10 +311,7 @@ export class SendManyTransaction {
     if (this.forcedChangeAddressAssets) {
       return this.forcedChangeAddressAssets;
     }
-    const changeAddressBaseCurrency = await this.wallet.getChangeAddress();
-    const index = this.wallet.getAddresses().indexOf(changeAddressBaseCurrency);
-    const changeAddressAsset = this.wallet.getAddresses()[index + 2];
-    return changeAddressAsset;
+    return this.wallet.getAssetChangeAddress();
   }
   getInputs() {
     return this.getUTXOs().map((obj) => {
@@ -317,7 +328,7 @@ export class SendManyTransaction {
         (obj) => obj.address === u.address
       );
       if (addressObject) {
-        privateKeys[u.address] = addressObject.WIF;
+        privateKeys[u.address] = this.wallet.getPrivateKeyByAddress(u.address);
       }
     }
 

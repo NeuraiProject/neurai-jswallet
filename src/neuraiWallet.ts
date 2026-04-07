@@ -26,9 +26,35 @@ export { Transaction };
 export { SendManyTransaction };
 const URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
+const PQ_COIN_TYPE = 1900;
 
 //Avoid singleton (anti-pattern)
 //Meaning multiple instances of the wallet must be able to co-exist
+
+type PQChainType = "xna-pq" | "xna-pq-test";
+type LegacyChainType = Exclude<ChainType, PQChainType>;
+
+function isPQNetwork(network: ChainType): network is PQChainType {
+  return network === "xna-pq" || network === "xna-pq-test";
+}
+
+function getPQDerivationPath(network: PQChainType, account: number, index: number) {
+  const chainIndex = network === "xna-pq" ? 0 : 1;
+  return `m/100'/${PQ_COIN_TYPE}'/${account}'/${chainIndex}/${index}`;
+}
+
+function getSigningMaterial(addressObject: IAddressMetaData) {
+  if (addressObject.seedKey) {
+    return {
+      seedKey: addressObject.seedKey,
+      publicKey: addressObject.publicKey,
+    };
+  }
+  if (addressObject.WIF) {
+    return addressObject.WIF;
+  }
+  return addressObject.privateKey;
+}
 
 export class Wallet {
   rpc = getRPC("anonymous", "anonymous", URL_NEURAI_MAINNET);
@@ -38,6 +64,7 @@ export class Wallet {
   addressObjects: Array<IAddressMetaData> = [];
   receiveAddress = "";
   changeAddress = "";
+  assetChangeAddress = "";
   addressPosition = 0;
   baseCurrency = "XNA";
   offlineMode = false;
@@ -107,8 +134,13 @@ export class Wallet {
     this._passphrase = options.passphrase || "";
 
     //Generating the hd key is slow, so we re-use the object
-    const hdKey = NeuraiKey.getHDKey(this.network, this._mnemonic, this._passphrase);
-    const coinType = NeuraiKey.getCoinType(this.network);
+    const usingPQ = isPQNetwork(this.network);
+    const pqNetwork = usingPQ ? (this.network as PQChainType) : null;
+    const legacyNetwork = usingPQ ? null : (this.network as LegacyChainType);
+    const hdKey = usingPQ
+      ? NeuraiKey.getPQHDKey(pqNetwork, this._mnemonic, this._passphrase)
+      : NeuraiKey.getHDKey(legacyNetwork, this._mnemonic, this._passphrase);
+    const coinType = usingPQ ? null : NeuraiKey.getCoinType(legacyNetwork);
     const ACCOUNT = 0;
 
     const minAmountOfAddresses = Number.isFinite(options.minAmountOfAddresses)
@@ -121,24 +153,44 @@ export class Wallet {
       const tempAddresses = [] as string[];
 
       for (let i = 0; i < 20; i++) {
-        const external = NeuraiKey.getAddressByPath(
-          this.network,
-          hdKey,
-          `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`
-        );
+        if (usingPQ) {
+          const pqAddress = {
+            ...NeuraiKey.getPQAddressByPath(
+              pqNetwork,
+              hdKey,
+              getPQDerivationPath(pqNetwork, ACCOUNT, this.addressPosition)
+            ),
+            keyType: "pq" as const,
+          };
+          this.addressObjects.push(pqAddress);
+          this.addressPosition++;
+          tempAddresses.push(pqAddress.address + "");
+        } else {
+          const external = {
+            ...NeuraiKey.getAddressByPath(
+              legacyNetwork,
+              hdKey,
+              `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`
+            ),
+            keyType: "legacy" as const,
+          };
 
-        const internal = NeuraiKey.getAddressByPath(
-          this.network,
-          hdKey,
-          `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`
-        );
+          const internal = {
+            ...NeuraiKey.getAddressByPath(
+              legacyNetwork,
+              hdKey,
+              `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`
+            ),
+            keyType: "legacy" as const,
+          };
 
-        this.addressObjects.push(external);
-        this.addressObjects.push(internal);
-        this.addressPosition++;
+          this.addressObjects.push(external);
+          this.addressObjects.push(internal);
+          this.addressPosition++;
 
-        tempAddresses.push(external.address + "");
-        tempAddresses.push(internal.address + "");
+          tempAddresses.push(external.address + "");
+          tempAddresses.push(internal.address + "");
+        }
       }
 
       if (
@@ -174,24 +226,14 @@ export class Wallet {
     return !!hasReceived;
   }
 
-  async _getFirstUnusedAddress(external: boolean) {
-    //First, check if lastReceivedAddress
-    if (external === true && this.receiveAddress) {
-      const asdf = await this.hasHistory([this.receiveAddress]);
-      if (asdf === false) {
-        return this.receiveAddress;
-      }
-    }
-    if (external === false && this.changeAddress) {
-      const asdf = await this.hasHistory([this.changeAddress]);
-      if (asdf === false) {
-        return this.changeAddress;
-      }
+  _getCandidateAddresses(external: boolean, excludeAddresses: string[] = []) {
+    const excluded = new Set(excludeAddresses.filter(Boolean));
+
+    if (isPQNetwork(this.network)) {
+      return this.getAddresses().filter((address) => !excluded.has(address));
     }
 
-    //First make a list of relevant addresses, either external (even) or change (odd)
     const addresses: string[] = [];
-
     this.getAddresses().map(function (address: string, index: number) {
       if (external === true && index % 2 === 0) {
         addresses.push(address);
@@ -200,31 +242,54 @@ export class Wallet {
       }
     });
 
-    //Use BINARY SEARCH
+    return addresses.filter((address) => !excluded.has(address));
+  }
 
-    // Binary search implementation to find the first item with `history` set to false
-    const binarySearch = async (_addresses: string[]) => {
-      let low = 0;
-      let high = _addresses.length - 1;
-      let result = "";
+  async _findFirstUnusedAddress(addresses: string[]) {
+    let low = 0;
+    let high = addresses.length - 1;
+    let result = "";
 
-      while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        const addy = _addresses[mid];
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const addy = addresses[mid];
 
-        const hasHistory = await this.hasHistory([addy]);
-        if (hasHistory === false) {
-          result = addy;
-          high = mid - 1; // Continue searching towards the left
-        } else {
-          low = mid + 1; // Continue searching towards the right
-        }
+      const hasHistory = await this.hasHistory([addy]);
+      if (hasHistory === false) {
+        result = addy;
+        high = mid - 1;
+      } else {
+        low = mid + 1;
       }
+    }
 
-      return result;
-    };
+    return result;
+  }
 
-    const result = await binarySearch(addresses);
+  async _getFirstUnusedAddress(external: boolean, excludeAddresses: string[] = []) {
+    //First, check if lastReceivedAddress
+    if (
+      external === true &&
+      this.receiveAddress &&
+      excludeAddresses.includes(this.receiveAddress) === false
+    ) {
+      const asdf = await this.hasHistory([this.receiveAddress]);
+      if (asdf === false) {
+        return this.receiveAddress;
+      }
+    }
+    if (
+      external === false &&
+      this.changeAddress &&
+      excludeAddresses.includes(this.changeAddress) === false
+    ) {
+      const asdf = await this.hasHistory([this.changeAddress]);
+      if (asdf === false) {
+        return this.changeAddress;
+      }
+    }
+    const addresses = this._getCandidateAddresses(external, excludeAddresses);
+    const result = await this._findFirstUnusedAddress(addresses);
 
     if (!result) {
       //IF we have not found one, return the first address
@@ -256,13 +321,42 @@ export class Wallet {
     return this.rpc(method, params) as Promise<IMempoolEntry[]>;
   }
   async getReceiveAddress() {
-    const isExternal = true;
-    return this._getFirstUnusedAddress(isExternal);
+    const excludeAddresses =
+      isPQNetwork(this.network) && this.changeAddress ? [this.changeAddress] : [];
+    return this._getFirstUnusedAddress(true, excludeAddresses);
   }
 
   async getChangeAddress() {
-    const isExternal = false;
-    return this._getFirstUnusedAddress(isExternal);
+    const excludeAddresses =
+      isPQNetwork(this.network) && this.receiveAddress ? [this.receiveAddress] : [];
+    return this._getFirstUnusedAddress(false, excludeAddresses);
+  }
+
+  async getAssetChangeAddress() {
+    const reservedAddresses = [this.receiveAddress, this.changeAddress].filter(Boolean);
+
+    if (
+      this.assetChangeAddress &&
+      reservedAddresses.includes(this.assetChangeAddress) === false
+    ) {
+      const asdf = await this.hasHistory([this.assetChangeAddress]);
+      if (asdf === false) {
+        return this.assetChangeAddress;
+      }
+    }
+
+    if (!isPQNetwork(this.network)) {
+      const changeAddressBaseCurrency = await this.getChangeAddress();
+      const index = this.getAddresses().indexOf(changeAddressBaseCurrency);
+      const changeAddressAsset = this.getAddresses()[index + 2];
+      this.assetChangeAddress = changeAddressAsset;
+      return changeAddressAsset;
+    }
+
+    const addresses = this._getCandidateAddresses(false, reservedAddresses);
+    const result = (await this._findFirstUnusedAddress(addresses)) || addresses[0];
+    this.assetChangeAddress = result;
+    return result;
   }
   /**
    *
@@ -291,7 +385,7 @@ export class Wallet {
     if (!f) {
       return undefined;
     }
-    return f.WIF;
+    return getSigningMaterial(f);
   }
   async sendRawTransaction(raw: string): Promise<string> {
     return this.rpc("sendrawtransaction", [raw]) as Promise<string>;

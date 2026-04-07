@@ -1,4 +1,4 @@
-import NeuraiKey, { Network } from "@neuraiproject/neurai-key";
+import NeuraiKey from "@neuraiproject/neurai-key";
 import Signer from "@neuraiproject/neurai-sign-transaction";
 
 !!Signer.sign; //"Idiocracy" but prevents bundle tools such as PARCEL to strip this dependency out on build.
@@ -22,6 +22,10 @@ export async function sweep(
   wallet: Wallet,
   onlineMode: boolean
 ): Promise<SweepResult> {
+  if (wallet.network === "xna-pq" || wallet.network === "xna-pq-test") {
+    throw new Error("Sweeping WIF private keys is not supported on PQ wallets");
+  }
+
   const privateKey = NeuraiKey.getAddressByWIF(wallet.network, WIF);
 
   const result: SweepResult = {};

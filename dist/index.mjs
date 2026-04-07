@@ -41,6 +41,16 @@ function $fab42eb3dee39b5b$export$2e2262a44ac61957(originalArray) {
 }
 
 
+const $c7db79d953d79f02$var$LEGACY_INPUT_VBYTES = 148;
+const $c7db79d953d79f02$var$PQ_INPUT_VBYTES = 976;
+const $c7db79d953d79f02$var$LEGACY_OUTPUT_BYTES = 34;
+const $c7db79d953d79f02$var$PQ_OUTPUT_BYTES = 31;
+function $c7db79d953d79f02$var$isPQAddress(address) {
+    return address.startsWith("nq1") || address.startsWith("tnq1");
+}
+function $c7db79d953d79f02$var$isPQScript(script) {
+    return script.startsWith("5114");
+}
 class $c7db79d953d79f02$export$a0aa368c31ae6e6c {
     constructor(options){
         // Fee rate used by getFee(): XNA per KB
@@ -75,11 +85,15 @@ class $c7db79d953d79f02$export$a0aa368c31ae6e6c {
         // which in turn affects the transaction size itself.
         // This is a chicken-and-egg situation, requiring an initial size estimate.
         const utxos = this.predictUTXOs();
-        const baseSize = 10; // Version (4) + input count (1) + output count (1) + locktime (4)
-        const assumedSizePerUTXO = 148; // ~148 bytes per input (txid + vout + scriptSig + sequence)
-        const assumedSizePerOutput = 34; // ~34 bytes per output (value + scriptPubKey)
-        const bytes = utxos.length * assumedSizePerUTXO + Object.keys(this.outputs).length * assumedSizePerOutput;
-        const kb = (baseSize + bytes) / 1024;
+        const hasPQInputs = utxos.some((utxo)=>$c7db79d953d79f02$var$isPQScript(utxo.script));
+        const baseSize = hasPQInputs ? 12 : 10; // Segwit marker/flag only when witness is present
+        const inputBytes = utxos.reduce((total, utxo)=>{
+            return total + ($c7db79d953d79f02$var$isPQScript(utxo.script) ? $c7db79d953d79f02$var$PQ_INPUT_VBYTES : $c7db79d953d79f02$var$LEGACY_INPUT_VBYTES);
+        }, 0);
+        const outputBytes = Object.keys(this.outputs).reduce((total, address)=>{
+            return total + ($c7db79d953d79f02$var$isPQAddress(address) ? $c7db79d953d79f02$var$PQ_OUTPUT_BYTES : $c7db79d953d79f02$var$LEGACY_OUTPUT_BYTES);
+        }, 0);
+        const kb = (baseSize + inputBytes + outputBytes) / 1024;
         return kb;
     }
     async loadData() {
@@ -210,10 +224,7 @@ class $c7db79d953d79f02$export$a0aa368c31ae6e6c {
     }
     async _getChangeAddressAssets() {
         if (this.forcedChangeAddressAssets) return this.forcedChangeAddressAssets;
-        const changeAddressBaseCurrency = await this.wallet.getChangeAddress();
-        const index = this.wallet.getAddresses().indexOf(changeAddressBaseCurrency);
-        const changeAddressAsset = this.wallet.getAddresses()[index + 2];
-        return changeAddressAsset;
+        return this.wallet.getAssetChangeAddress();
     }
     getInputs() {
         return this.getUTXOs().map((obj)=>{
@@ -230,7 +241,7 @@ class $c7db79d953d79f02$export$a0aa368c31ae6e6c {
         for (let u of this.getUTXOs()){
             //Find the address object (we want the WIF) for the address related to the UTXO
             const addressObject = addressObjects.find((obj)=>obj.address === u.address);
-            if (addressObject) privateKeys[u.address] = addressObject.WIF;
+            if (addressObject) privateKeys[u.address] = this.wallet.getPrivateKeyByAddress(u.address);
         }
         //Add privatekeys from forcedUTXOs
         this.forcedUTXOs.map((f)=>privateKeys[f.address] = f.privateKey);
@@ -306,6 +317,7 @@ function $c7db79d953d79f02$var$normaliseFee(network, fee) {
 //OH easter egg ;)
 const $67c46d86d9d50c48$var$WIF = "Kz5U4Bmhrng4o2ZgwBi5PjtorCeq2dyM7axGQfdxsBSwCKi5ZfTw";
 async function $67c46d86d9d50c48$export$322a62cff28f560a(WIF, wallet, onlineMode) {
+    if (wallet.network === "xna-pq" || wallet.network === "xna-pq-test") throw new Error("Sweeping WIF private keys is not supported on PQ wallets");
     const privateKey = (0, $jLKws$neuraiprojectneuraikey).getAddressByWIF(wallet.network, WIF);
     const result = {};
     const rpc = wallet.rpc;
@@ -447,7 +459,9 @@ function $b986b05eb12d057a$export$af0c167f1aa2328f(network) {
         xna: "XNA",
         "xna-test": "XNA",
         "xna-legacy": "XNA",
-        "xna-legacy-test": "XNA"
+        "xna-legacy-test": "XNA",
+        "xna-pq": "XNA",
+        "xna-pq-test": "XNA"
     };
     return map[network];
 }
@@ -495,6 +509,22 @@ async function $0b10d1d1bbb55c3e$export$ab187dba3e955af9(wallet, addresses) {
 
 const $14d29c831c740206$var$URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const $14d29c831c740206$var$URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
+const $14d29c831c740206$var$PQ_COIN_TYPE = 1900;
+function $14d29c831c740206$var$isPQNetwork(network) {
+    return network === "xna-pq" || network === "xna-pq-test";
+}
+function $14d29c831c740206$var$getPQDerivationPath(network, account, index) {
+    const chainIndex = network === "xna-pq" ? 0 : 1;
+    return `m/100'/${$14d29c831c740206$var$PQ_COIN_TYPE}'/${account}'/${chainIndex}/${index}`;
+}
+function $14d29c831c740206$var$getSigningMaterial(addressObject) {
+    if (addressObject.seedKey) return {
+        seedKey: addressObject.seedKey,
+        publicKey: addressObject.publicKey
+    };
+    if (addressObject.WIF) return addressObject.WIF;
+    return addressObject.privateKey;
+}
 class $14d29c831c740206$export$bcca3ea514774656 {
     setBaseCurrency(currency) {
         this.baseCurrency = currency;
@@ -543,17 +573,34 @@ class $14d29c831c740206$export$bcca3ea514774656 {
         this._mnemonic = options.mnemonic;
         this._passphrase = options.passphrase || "";
         //Generating the hd key is slow, so we re-use the object
-        const hdKey = (0, $jLKws$neuraiprojectneuraikey).getHDKey(this.network, this._mnemonic, this._passphrase);
-        const coinType = (0, $jLKws$neuraiprojectneuraikey).getCoinType(this.network);
+        const usingPQ = $14d29c831c740206$var$isPQNetwork(this.network);
+        const pqNetwork = usingPQ ? this.network : null;
+        const legacyNetwork = usingPQ ? null : this.network;
+        const hdKey = usingPQ ? (0, $jLKws$neuraiprojectneuraikey).getPQHDKey(pqNetwork, this._mnemonic, this._passphrase) : (0, $jLKws$neuraiprojectneuraikey).getHDKey(legacyNetwork, this._mnemonic, this._passphrase);
+        const coinType = usingPQ ? null : (0, $jLKws$neuraiprojectneuraikey).getCoinType(legacyNetwork);
         const ACCOUNT = 0;
         const minAmountOfAddresses = Number.isFinite(options.minAmountOfAddresses) ? options.minAmountOfAddresses : 0;
         let doneDerivingAddresses = false;
         while(doneDerivingAddresses === false){
             //We add new addresses to tempAddresses so we can check history for the last 20
             const tempAddresses = [];
-            for(let i = 0; i < 20; i++){
-                const external = (0, $jLKws$neuraiprojectneuraikey).getAddressByPath(this.network, hdKey, `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`);
-                const internal = (0, $jLKws$neuraiprojectneuraikey).getAddressByPath(this.network, hdKey, `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`);
+            for(let i = 0; i < 20; i++)if (usingPQ) {
+                const pqAddress = {
+                    ...(0, $jLKws$neuraiprojectneuraikey).getPQAddressByPath(pqNetwork, hdKey, $14d29c831c740206$var$getPQDerivationPath(pqNetwork, ACCOUNT, this.addressPosition)),
+                    keyType: "pq"
+                };
+                this.addressObjects.push(pqAddress);
+                this.addressPosition++;
+                tempAddresses.push(pqAddress.address + "");
+            } else {
+                const external = {
+                    ...(0, $jLKws$neuraiprojectneuraikey).getAddressByPath(legacyNetwork, hdKey, `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`),
+                    keyType: "legacy"
+                };
+                const internal = {
+                    ...(0, $jLKws$neuraiprojectneuraikey).getAddressByPath(legacyNetwork, hdKey, `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`),
+                    keyType: "legacy"
+                };
                 this.addressObjects.push(external);
                 this.addressObjects.push(internal);
                 this.addressPosition++;
@@ -581,46 +628,49 @@ class $14d29c831c740206$export$bcca3ea514774656 {
         const hasReceived = Object.values(asdf).find((asset)=>asset.received > 0);
         return !!hasReceived;
     }
-    async _getFirstUnusedAddress(external) {
-        //First, check if lastReceivedAddress
-        if (external === true && this.receiveAddress) {
-            const asdf = await this.hasHistory([
-                this.receiveAddress
-            ]);
-            if (asdf === false) return this.receiveAddress;
-        }
-        if (external === false && this.changeAddress) {
-            const asdf = await this.hasHistory([
-                this.changeAddress
-            ]);
-            if (asdf === false) return this.changeAddress;
-        }
-        //First make a list of relevant addresses, either external (even) or change (odd)
+    _getCandidateAddresses(external, excludeAddresses = []) {
+        const excluded = new Set(excludeAddresses.filter(Boolean));
+        if ($14d29c831c740206$var$isPQNetwork(this.network)) return this.getAddresses().filter((address)=>!excluded.has(address));
         const addresses = [];
         this.getAddresses().map(function(address, index) {
             if (external === true && index % 2 === 0) addresses.push(address);
             else if (external === false && index % 2 !== 0) addresses.push(address);
         });
-        //Use BINARY SEARCH
-        // Binary search implementation to find the first item with `history` set to false
-        const binarySearch = async (_addresses)=>{
-            let low = 0;
-            let high = _addresses.length - 1;
-            let result = "";
-            while(low <= high){
-                const mid = Math.floor((low + high) / 2);
-                const addy = _addresses[mid];
-                const hasHistory = await this.hasHistory([
-                    addy
-                ]);
-                if (hasHistory === false) {
-                    result = addy;
-                    high = mid - 1; // Continue searching towards the left
-                } else low = mid + 1; // Continue searching towards the right
-            }
-            return result;
-        };
-        const result = await binarySearch(addresses);
+        return addresses.filter((address)=>!excluded.has(address));
+    }
+    async _findFirstUnusedAddress(addresses) {
+        let low = 0;
+        let high = addresses.length - 1;
+        let result = "";
+        while(low <= high){
+            const mid = Math.floor((low + high) / 2);
+            const addy = addresses[mid];
+            const hasHistory = await this.hasHistory([
+                addy
+            ]);
+            if (hasHistory === false) {
+                result = addy;
+                high = mid - 1;
+            } else low = mid + 1;
+        }
+        return result;
+    }
+    async _getFirstUnusedAddress(external, excludeAddresses = []) {
+        //First, check if lastReceivedAddress
+        if (external === true && this.receiveAddress && excludeAddresses.includes(this.receiveAddress) === false) {
+            const asdf = await this.hasHistory([
+                this.receiveAddress
+            ]);
+            if (asdf === false) return this.receiveAddress;
+        }
+        if (external === false && this.changeAddress && excludeAddresses.includes(this.changeAddress) === false) {
+            const asdf = await this.hasHistory([
+                this.changeAddress
+            ]);
+            if (asdf === false) return this.changeAddress;
+        }
+        const addresses = this._getCandidateAddresses(external, excludeAddresses);
+        const result = await this._findFirstUnusedAddress(addresses);
         if (!result) //IF we have not found one, return the first address
         return addresses[0];
         if (external === true) this.receiveAddress = result;
@@ -652,12 +702,39 @@ class $14d29c831c740206$export$bcca3ea514774656 {
         return this.rpc(method, params);
     }
     async getReceiveAddress() {
-        const isExternal = true;
-        return this._getFirstUnusedAddress(isExternal);
+        const excludeAddresses = $14d29c831c740206$var$isPQNetwork(this.network) && this.changeAddress ? [
+            this.changeAddress
+        ] : [];
+        return this._getFirstUnusedAddress(true, excludeAddresses);
     }
     async getChangeAddress() {
-        const isExternal = false;
-        return this._getFirstUnusedAddress(isExternal);
+        const excludeAddresses = $14d29c831c740206$var$isPQNetwork(this.network) && this.receiveAddress ? [
+            this.receiveAddress
+        ] : [];
+        return this._getFirstUnusedAddress(false, excludeAddresses);
+    }
+    async getAssetChangeAddress() {
+        const reservedAddresses = [
+            this.receiveAddress,
+            this.changeAddress
+        ].filter(Boolean);
+        if (this.assetChangeAddress && reservedAddresses.includes(this.assetChangeAddress) === false) {
+            const asdf = await this.hasHistory([
+                this.assetChangeAddress
+            ]);
+            if (asdf === false) return this.assetChangeAddress;
+        }
+        if (!$14d29c831c740206$var$isPQNetwork(this.network)) {
+            const changeAddressBaseCurrency = await this.getChangeAddress();
+            const index = this.getAddresses().indexOf(changeAddressBaseCurrency);
+            const changeAddressAsset = this.getAddresses()[index + 2];
+            this.assetChangeAddress = changeAddressAsset;
+            return changeAddressAsset;
+        }
+        const addresses = this._getCandidateAddresses(false, reservedAddresses);
+        const result = await this._findFirstUnusedAddress(addresses) || addresses[0];
+        this.assetChangeAddress = result;
+        return result;
     }
     /**
    *
@@ -686,7 +763,7 @@ class $14d29c831c740206$export$bcca3ea514774656 {
     getPrivateKeyByAddress(address) {
         const f = this.addressObjects.find((a)=>a.address === address);
         if (!f) return undefined;
-        return f.WIF;
+        return $14d29c831c740206$var$getSigningMaterial(f);
     }
     async sendRawTransaction(raw) {
         return this.rpc("sendrawtransaction", [
@@ -905,6 +982,7 @@ class $14d29c831c740206$export$bcca3ea514774656 {
         this.addressObjects = [];
         this.receiveAddress = "";
         this.changeAddress = "";
+        this.assetChangeAddress = "";
         this.addressPosition = 0;
         this.baseCurrency = "XNA";
         this.offlineMode = false;

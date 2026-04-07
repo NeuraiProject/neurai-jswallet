@@ -6,7 +6,14 @@ interface ISend {
     forcedChangeAddressAssets?: string;
     forcedChangeAddressBaseCurrency?: string;
 }
-type ChainType = "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test";
+type ChainType = "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test" | "xna-pq" | "xna-pq-test";
+type TPrivateKeyInput = string | {
+    WIF?: string;
+    seedKey?: string;
+    privateKey?: string;
+    secretKey?: string;
+    publicKey?: string;
+};
 interface IAddressDelta {
     address: string;
     assetName: string;
@@ -53,7 +60,7 @@ interface SweepResult {
     UTXOs?: Array<IUTXO>;
 }
 type TPrivateKey = {
-    [key: string]: string;
+    [key: string]: TPrivateKeyInput;
 };
 interface ISendResult {
     transactionId: string | null;
@@ -91,9 +98,12 @@ interface IUTXO {
 }
 interface IAddressMetaData {
     address: string;
-    WIF: string;
+    WIF?: string;
     path: string;
+    publicKey?: string;
     privateKey: string;
+    seedKey?: string;
+    keyType?: "legacy" | "pq";
 }
 interface IInput {
     txid: string;
@@ -102,9 +112,12 @@ interface IInput {
 }
 interface IAddressMetaData {
     address: string;
-    WIF: string;
+    WIF?: string;
     path: string;
+    publicKey?: string;
     privateKey: string;
+    seedKey?: string;
+    keyType?: "legacy" | "pq";
 }
 interface ITransactionOptions {
     amount: number;
@@ -134,7 +147,7 @@ interface IMempoolEntry {
 }
 interface IForcedUTXO {
     utxo: IUTXO;
-    privateKey: string;
+    privateKey: TPrivateKeyInput;
     address: string;
 }
 /**
@@ -220,6 +233,7 @@ export class Wallet {
     addressObjects: Array<IAddressMetaData>;
     receiveAddress: string;
     changeAddress: string;
+    assetChangeAddress: string;
     addressPosition: number;
     baseCurrency: string;
     offlineMode: boolean;
@@ -239,11 +253,14 @@ export class Wallet {
     getAddresses(): Array<string>;
     init(options: IOptions): Promise<void>;
     hasHistory(addresses: Array<string>): Promise<boolean>;
-    _getFirstUnusedAddress(external: boolean): Promise<string>;
+    _getCandidateAddresses(external: boolean, excludeAddresses?: string[]): string[];
+    _findFirstUnusedAddress(addresses: string[]): Promise<string>;
+    _getFirstUnusedAddress(external: boolean, excludeAddresses?: string[]): Promise<string>;
     getHistory(): Promise<IAddressDelta[]>;
     getMempool(): Promise<IMempoolEntry[]>;
     getReceiveAddress(): Promise<string>;
     getChangeAddress(): Promise<string>;
+    getAssetChangeAddress(): Promise<string>;
     /**
      *
      * @param assetName if present, only return UTXOs for that asset, otherwise for all assets
@@ -251,7 +268,10 @@ export class Wallet {
      */
     getAssetUTXOs(assetName?: string): Promise<IUTXO[]>;
     getUTXOs(): Promise<IUTXO[]>;
-    getPrivateKeyByAddress(address: string): string;
+    getPrivateKeyByAddress(address: string): string | {
+        seedKey: string;
+        publicKey: string;
+    };
     sendRawTransaction(raw: string): Promise<string>;
     send(options: ISend): Promise<ISendResult>;
     sendMany({ outputs, assetName }: ISendManyOptions): Promise<ISendResult>;

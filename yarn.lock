@@ -40,29 +40,37 @@
   resolved "https://registry.npmjs.org/@msgpackr-extract/msgpackr-extract-linux-x64/-/msgpackr-extract-linux-x64-3.0.3.tgz"
   integrity sha512-cvwNfbP07pKUfq1uH+S6KJ7dT9K8WOE4ZiAcsrSes+UY55E/0jLYc+vq+DO7jlmqRb5zAggExKm0H7O/CBaesg==
 
-"@neuraiproject/neurai-key@2.8.7":
-  version "2.8.7"
-  resolved "https://registry.npmjs.org/@neuraiproject/neurai-key/-/neurai-key-2.8.7.tgz"
-  integrity sha512-sy0ZB3wYy3SE1QkKNWMZMb/M39qlM5QaLs57PFv290qWiqXd0hwboh2Y00Fjr55q1Fi0FAtZWC+Fxgt6Tpxmmw==
+"@neuraiproject/neurai-key@2.8.8":
+  version "2.8.8"
+  resolved "https://registry.npmjs.org/@neuraiproject/neurai-key/-/neurai-key-2.8.8.tgz"
+  integrity sha512-tuZ8ee2xzjQGTyG8azBaKTsZp/Fd/HDFEoxRAZsTYwBt4IHdolv4VrvqGB5jph/VYC7vbi9/Yxck3lcEMSwzVw==
   dependencies:
+    "@noble/post-quantum" "^0.6.0"
+    bech32 "^2.0.0"
     bip39 "^3.0.4"
     bs58check "^2.1.2"
     coinkey "^3.0.0"
     hdkey "^2.0.1"
 
-"@neuraiproject/neurai-rpc@0.4.6":
-  version "0.4.6"
-  resolved "https://registry.npmjs.org/@neuraiproject/neurai-rpc/-/neurai-rpc-0.4.6.tgz"
-  integrity sha512-RcYx6sypTEHSsMfKB59Fb+W4uGzgnUk/5PrC7sIcKP2xUPsaTEVL7V0TyUWN6sz6UUpdOxl4V40i6vDl76ytPw==
+"@neuraiproject/neurai-rpc@0.4.7":
+  version "0.4.7"
+  resolved "https://registry.npmjs.org/@neuraiproject/neurai-rpc/-/neurai-rpc-0.4.7.tgz"
+  integrity sha512-TOUyNzZ2Ko70ECXElfXUFLI2GBT4i3gickICxF77SAy21JYP6zQa5LkqpMt9p1xLcZUr272ZWQURafvl5lajGg==
 
-"@neuraiproject/neurai-sign-transaction@1.1.2":
-  version "1.1.2"
-  resolved "https://registry.npmjs.org/@neuraiproject/neurai-sign-transaction/-/neurai-sign-transaction-1.1.2.tgz"
-  integrity sha512-FhntVdq5v9S6li5vk+oBWgyrCFwQDDP/hnfhM9W+bLvPC+PtM5+SdIol25Xi0haL6SgCjd85rxIc75HIOunr3A==
+"@neuraiproject/neurai-sign-transaction@1.1.3":
+  version "1.1.3"
+  resolved "https://registry.npmjs.org/@neuraiproject/neurai-sign-transaction/-/neurai-sign-transaction-1.1.3.tgz"
+  integrity sha512-NhRymwglpysFlve5dPonYATdio8Ni+i017Tilj3vvGd9pVRlwNjygrjsuyPwqMH7op3fDOLVzeINHP/NlTftcw==
   dependencies:
     "@bitcoinerlab/secp256k1" "1.2.0"
+    "@noble/post-quantum" "^0.6.0"
     bitcoinjs-lib "6.1.7"
     ecpair "3.0.0"
+
+"@noble/ciphers@~2.0.0":
+  version "2.0.1"
+  resolved "https://registry.npmjs.org/@noble/ciphers/-/ciphers-2.0.1.tgz"
+  integrity sha512-xHK3XHPUW8DTAobU+G0XT+/w+JLM7/8k1UFdB5xg/zTFPnFCobhftzw8wl4Lw2aq/Rvir5pxfZV5fEazmeCJ2g==
 
 "@noble/curves@^1.7.0":
   version "1.9.7"
@@ -71,10 +79,31 @@
   dependencies:
     "@noble/hashes" "1.8.0"
 
+"@noble/curves@~2.0.0":
+  version "2.0.1"
+  resolved "https://registry.npmjs.org/@noble/curves/-/curves-2.0.1.tgz"
+  integrity sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw==
+  dependencies:
+    "@noble/hashes" "2.0.1"
+
 "@noble/hashes@^1.2.0", "@noble/hashes@1.8.0":
   version "1.8.0"
   resolved "https://registry.npmjs.org/@noble/hashes/-/hashes-1.8.0.tgz"
   integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
+
+"@noble/hashes@~2.0.0", "@noble/hashes@2.0.1":
+  version "2.0.1"
+  resolved "https://registry.npmjs.org/@noble/hashes/-/hashes-2.0.1.tgz"
+  integrity sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==
+
+"@noble/post-quantum@^0.6.0":
+  version "0.6.0"
+  resolved "https://registry.npmjs.org/@noble/post-quantum/-/post-quantum-0.6.0.tgz"
+  integrity sha512-rv4UfzjtlwrGFBso6IiofY3j4XhLrvjX6Q/w2bVWUoiPvKDIadeW7+xti0c0zND7K+yk62A2XYSLFlQZVHb5Mg==
+  dependencies:
+    "@noble/ciphers" "~2.0.0"
+    "@noble/curves" "~2.0.0"
+    "@noble/hashes" "~2.0.0"
 
 "@parcel/bundler-default@2.16.3":
   version "2.16.3"

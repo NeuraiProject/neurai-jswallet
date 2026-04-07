@@ -18,7 +18,22 @@ export interface ISend {
   forcedChangeAddressAssets?: string;
   forcedChangeAddressBaseCurrency?: string;
 }
-export type ChainType = "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test";
+export type ChainType =
+  | "xna"
+  | "xna-test"
+  | "xna-legacy"
+  | "xna-legacy-test"
+  | "xna-pq"
+  | "xna-pq-test";
+export type TPrivateKeyInput =
+  | string
+  | {
+      WIF?: string;
+      seedKey?: string;
+      privateKey?: string;
+      secretKey?: string;
+      publicKey?: string;
+    };
 export interface IAddressDelta {
   address: string;
   assetName: string;
@@ -65,7 +80,7 @@ export interface SweepResult {
   UTXOs?: Array<IUTXO>;
 }
 export type TPrivateKey = {
-  [key: string]: string;
+  [key: string]: TPrivateKeyInput;
 };
 
 export interface ISendResult {
@@ -205,9 +220,12 @@ export interface IAssetMetaData {
 }
 export interface IAddressMetaData {
   address: string;
-  WIF: string;
+  WIF?: string;
   path: string;
+  publicKey?: string;
   privateKey: string;
+  seedKey?: string;
+  keyType?: "legacy" | "pq";
 }
 export interface IUser {
   lastKnownUsedPosition?: number;
@@ -233,9 +251,12 @@ export type RPCType = (arg1: string, arg2: any[]) => any;
 
 export interface IAddressMetaData {
   address: string;
-  WIF: string;
+  WIF?: string;
   path: string;
+  publicKey?: string;
   privateKey: string;
+  seedKey?: string;
+  keyType?: "legacy" | "pq";
 }
 
 export interface ITransactionOptions {
@@ -269,6 +290,6 @@ export interface IMempoolEntry {
 
 export interface IForcedUTXO {
   utxo: IUTXO;
-  privateKey: string;
+  privateKey: TPrivateKeyInput;
   address: string;
 }
