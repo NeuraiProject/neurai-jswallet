@@ -47,7 +47,8 @@ it("Test getHistory", async () => {
 
 it("Min amount of addresses", async function () {
   this.timeout(30 * 1000); //30 seconds, generating tons of addresses
-  const mnemonic = "bla bla bla";
+  const mnemonic =
+    "caught actress master salt kingdom february spot brief barrel apart rely common";
   const minAmountOfAddresses = 1000;
   wallet = await NeuraiWallet.createInstance({
     mnemonic,

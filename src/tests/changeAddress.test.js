@@ -1,7 +1,8 @@
 const NeuraiWallet = require("../../dist/index.cjs");
 const expect = require("chai").expect;
 it("Change and to address cant be the same", async () => {
-  const mnemonic = "bla bla bla";
+  const mnemonic =
+    "caught actress master salt kingdom february spot brief barrel apart rely common";
 
   const wallet = await NeuraiWallet.createInstance({
     mnemonic,

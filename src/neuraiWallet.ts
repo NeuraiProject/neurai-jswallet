@@ -26,7 +26,11 @@ export { Transaction };
 export { SendManyTransaction };
 const URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
-const PQ_COIN_TYPE = 1900;
+// NIP-022 PQ-HD (neurai-key >= 4.0.0): every path level must be hardened.
+const PQ_PURPOSE = 100;
+const PQ_COIN_TYPE_MAINNET = 1900;
+const PQ_COIN_TYPE_TESTNET = 1;
+const PQ_CHANGE_INDEX = 0;
 
 //Avoid singleton (anti-pattern)
 //Meaning multiple instances of the wallet must be able to co-exist
@@ -39,8 +43,8 @@ function isPQNetwork(network: ChainType): network is PQChainType {
 }
 
 function getPQDerivationPath(network: PQChainType, account: number, index: number) {
-  const chainIndex = network === "xna-pq" ? 0 : 1;
-  return `m/100'/${PQ_COIN_TYPE}'/${account}'/${chainIndex}/${index}`;
+  const coinType = network === "xna-pq" ? PQ_COIN_TYPE_MAINNET : PQ_COIN_TYPE_TESTNET;
+  return `m_pq/${PQ_PURPOSE}'/${coinType}'/${account}'/${PQ_CHANGE_INDEX}'/${index}'`;
 }
 
 function getSigningMaterial(addressObject: IAddressMetaData) {
@@ -137,10 +141,13 @@ export class Wallet {
     const usingPQ = isPQNetwork(this.network);
     const pqNetwork = usingPQ ? (this.network as PQChainType) : null;
     const legacyNetwork = usingPQ ? null : (this.network as LegacyChainType);
-    const hdKey = usingPQ
-      ? NeuraiKey.getPQHDKey(pqNetwork, this._mnemonic, this._passphrase)
-      : NeuraiKey.getHDKey(legacyNetwork, this._mnemonic, this._passphrase);
-    const coinType = usingPQ ? null : NeuraiKey.getCoinType(legacyNetwork);
+    const pqHDKey = usingPQ
+      ? NeuraiKey.getPQHDKey(pqNetwork!, this._mnemonic, this._passphrase)
+      : null;
+    const legacyHDKey = usingPQ
+      ? null
+      : NeuraiKey.getHDKey(legacyNetwork!, this._mnemonic, this._passphrase);
+    const coinType = usingPQ ? null : NeuraiKey.getCoinType(legacyNetwork!);
     const ACCOUNT = 0;
 
     const minAmountOfAddresses = Number.isFinite(options.minAmountOfAddresses)
@@ -156,9 +163,9 @@ export class Wallet {
         if (usingPQ) {
           const pqAddress = {
             ...NeuraiKey.getPQAddressByPath(
-              pqNetwork,
-              hdKey,
-              getPQDerivationPath(pqNetwork, ACCOUNT, this.addressPosition)
+              pqNetwork!,
+              pqHDKey!,
+              getPQDerivationPath(pqNetwork!, ACCOUNT, this.addressPosition)
             ),
             keyType: "pq" as const,
           };
@@ -168,8 +175,8 @@ export class Wallet {
         } else {
           const external = {
             ...NeuraiKey.getAddressByPath(
-              legacyNetwork,
-              hdKey,
+              legacyNetwork!,
+              legacyHDKey!,
               `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`
             ),
             keyType: "legacy" as const,
@@ -177,8 +184,8 @@ export class Wallet {
 
           const internal = {
             ...NeuraiKey.getAddressByPath(
-              legacyNetwork,
-              hdKey,
+              legacyNetwork!,
+              legacyHDKey!,
               `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`
             ),
             keyType: "legacy" as const,
@@ -267,6 +274,20 @@ export class Wallet {
   }
 
   async _getFirstUnusedAddress(external: boolean, excludeAddresses: string[] = []) {
+    // Offline mode: return the first candidate without consulting the network.
+    // Useful when the caller built the wallet with offlineMode: true and just
+    // needs deterministic receive/change addresses (e.g. PQ wallets whose
+    // bech32m format is not yet recognised by every RPC node).
+    if (this.offlineMode === true) {
+      const addresses = this._getCandidateAddresses(external, excludeAddresses);
+      const result = addresses[0];
+      if (external === true) {
+        this.receiveAddress = result;
+      } else {
+        this.changeAddress = result;
+      }
+      return result;
+    }
     //First, check if lastReceivedAddress
     if (
       external === true &&
@@ -334,6 +355,20 @@ export class Wallet {
 
   async getAssetChangeAddress() {
     const reservedAddresses = [this.receiveAddress, this.changeAddress].filter(Boolean);
+
+    if (this.offlineMode === true) {
+      if (!isPQNetwork(this.network)) {
+        const changeAddressBaseCurrency = await this.getChangeAddress();
+        const index = this.getAddresses().indexOf(changeAddressBaseCurrency);
+        const changeAddressAsset = this.getAddresses()[index + 2];
+        this.assetChangeAddress = changeAddressAsset;
+        return changeAddressAsset;
+      }
+      const offlineCandidates = this._getCandidateAddresses(false, reservedAddresses);
+      const offlineResult = offlineCandidates[0];
+      this.assetChangeAddress = offlineResult;
+      return offlineResult;
+    }
 
     if (
       this.assetChangeAddress &&

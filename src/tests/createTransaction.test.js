@@ -12,7 +12,8 @@ const walletPromise = NeuraiWallet.createInstance({
 
 it("Transaction should have XNA fee", async () => {
   const options = {
-    toAddress: "mmmjadMR4LkmHjg7VHQSj3hyp9NjWidzT9",
+    // Crazy Cat external[0] — any valid xna-test address that is not our change works
+    toAddress: "tVJpKx3HhMMqp9tpok35py8am4uZqT1g6B",
     amount: 1,
   };
   const wallet = await walletPromise;
