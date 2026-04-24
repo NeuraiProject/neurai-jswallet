@@ -26,6 +26,7 @@ function _interopNamespaceDefault(e) {
     return Object.freeze(n);
 }
 
+var NeuraiKey__namespace = /*#__PURE__*/_interopNamespaceDefault(NeuraiKey);
 var neuraiScripts__namespace = /*#__PURE__*/_interopNamespaceDefault(neuraiScripts);
 
 class ValidationError extends Error {
@@ -1228,6 +1229,7 @@ Object.defineProperty(exports, "isMnemonicValid", {
     enumerable: true,
     get: function () { return NeuraiKey.isMnemonicValid; }
 });
+exports.key = NeuraiKey__namespace;
 exports.scripts = neuraiScripts__namespace;
 exports.Wallet = Wallet;
 exports.createInstance = createInstance;

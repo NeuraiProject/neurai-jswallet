@@ -25,3 +25,20 @@ export {
   entropyToMnemonic,
   isMnemonicValid,
 } from "@neuraiproject/neurai-key";
+
+/**
+ * Full `@neuraiproject/neurai-key` surface for advanced consumers
+ * (offline derivation, manual HD key handling, address pair generation,
+ * coin types, AuthScript / PQ helpers, mnemonic ↔ entropy round-trips...).
+ *
+ * The mnemonic shortcuts above (`generateMnemonic`, `entropyToMnemonic`,
+ * `isMnemonicValid`) are kept at the top level for ergonomics and remain
+ * the same functions exposed under `key.*`.
+ *
+ *   NeuraiJsWallet.key.mnemonicToEntropy(mnemonic)
+ *   NeuraiJsWallet.key.getAddressPair(network, mnemonic, account, index, passphrase)
+ *   NeuraiJsWallet.key.getHDKey(network, mnemonic, passphrase)
+ *   NeuraiJsWallet.key.getAddressByPath(network, hdKey, path)
+ *   NeuraiJsWallet.key.getCoinType(network)
+ */
+export * as key from "@neuraiproject/neurai-key";

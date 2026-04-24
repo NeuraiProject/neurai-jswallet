@@ -91,6 +91,30 @@ The same names are exposed on `globalThis.NeuraiJsWallet` when loading the
 IIFE bundle from a `<script>` tag, so a browser wallet can be built from a
 single script.
 
+### Full key namespace
+
+For advanced consumers (offline derivation, manual HD key handling, address
+pair generation, AuthScript helpers...) the entire `@neuraiproject/neurai-key`
+surface is exposed under the `key` namespace:
+
+```js
+import { key } from "@neuraiproject/neurai-jswallet";
+
+// Address pair (sync, no RPC)
+const { address, WIF } = key.getAddressPair("xna-test", mnemonic, 0, 0, passphrase);
+
+// HD primitives
+const hdKey = key.getHDKey("xna-test", mnemonic, passphrase);
+const coin = key.getCoinType("xna-test");
+const derived = key.getAddressByPath("xna-test", hdKey, "m/44'/175'/0'/0/0");
+
+// PQ-HD primitives
+const pqHd = key.getPQHDKey("xna-pq-test", mnemonic, passphrase);
+const pqAddr = key.getPQAddressByPath("xna-pq-test", pqHd, "m_pq/100'/1'/0'/0'/0'");
+```
+
+Same access from a browser bundle: `NeuraiJsWallet.key.getAddressPair(...)`.
+
 ## Common operations
 
 ```js

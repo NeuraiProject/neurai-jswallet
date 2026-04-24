@@ -1,5 +1,6 @@
 import * as NeuraiJsWallet from "../neuraiWallet.js";
 import * as scripts from "@neuraiproject/neurai-scripts";
+import * as key from "@neuraiproject/neurai-key";
 import {
   generateMnemonic,
   entropyToMnemonic,
@@ -9,6 +10,7 @@ import {
 const merged = {
   ...NeuraiJsWallet,
   scripts,
+  key,
   generateMnemonic,
   entropyToMnemonic,
   isMnemonicValid,
