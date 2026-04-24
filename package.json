@@ -45,6 +45,8 @@
     "url": "https://github.com/neuraiproject/neurai-jswallet/issues"
   },
   "dependencies": {
+    "@neuraiproject/neurai-assets": "1.2.5",
+    "@neuraiproject/neurai-create-transaction": "0.3.1",
     "@neuraiproject/neurai-key": "4.0.0",
     "@neuraiproject/neurai-rpc": "0.4.7",
     "@neuraiproject/neurai-sign-transaction": "2.1.0"

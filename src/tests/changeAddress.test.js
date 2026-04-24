@@ -21,7 +21,7 @@ it("Change and to address cant be the same", async () => {
     error = e;
   }
   const changeAddressAndToAddressTheSame =
-    (error + "").indexOf("Change address cannot be the same as toAddress") > -1;
+    (error + "").indexOf("Change address cannot be the same as to address") > -1;
 
   expect(changeAddressAndToAddressTheSame).to.be.true;
 

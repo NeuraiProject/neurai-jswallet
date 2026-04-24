@@ -1,65 +1,37 @@
 const NeuraiWallet = require("../../dist/index.cjs");
 const expect = require("chai").expect;
-const SendManyTransaction = NeuraiWallet.SendManyTransaction;
 const crazyCatWalletPromise = require("./getWalletPromise");
 
-//Should have 10 XNA on testnet
-const mnemonic =
-  "salad hammer want used web finger comic gold trigger accident oblige pluck";
-
-const walletPromise = NeuraiWallet.createInstance({
-  mnemonic,
-  network: "xna-test",
-  offlineMode: true,
-});
+// Forced change addresses must belong to the sending wallet so the change is
+// recoverable. We use Crazy Cat wallet's index-1 addresses (its index-0
+// already holds funds) to keep the test self-contained.
+const FORCED_ASSET_CHANGE = "tL1vjZj1KYd1FuAcCv4KWQPYMsJxA2rJoH"; // Crazy Cat external[1]
+const FORCED_BASE_CHANGE = "tKevLHxnRC4srYDP6vGrYPRESkL9p4wd5Y"; // Crazy Cat internal[1]
+const RECIPIENT = "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy"; // Crazy Cat external[2]
 
 it("Forced change address for assets", async () => {
-  const wallet = await walletPromise;
+  const wallet = await crazyCatWalletPromise;
 
-  //Now lets create a SendManyTransaction and make sure the forced utxo is there
-  const wallet2 = await crazyCatWalletPromise;
-
-  const options = {
+  const result = await wallet.createSendManyTransaction({
     assetName: "BUTTER",
-    forcedChangeAddressAssets: "mkupbsCoqXbqYnheWbJk21hmKPd6TRVcpz",
-    wallet: wallet2,
-    outputs: { mwPkBNKAnDtZnLEUavx3EV4oXsniqCiugm: 1 },
-  };
-  const sendManyTransaction = new SendManyTransaction(options);
+    forcedChangeAddressAssets: FORCED_ASSET_CHANGE,
+    outputs: { [RECIPIENT]: 1 },
+  });
 
-  await sendManyTransaction.loadData();
-
-  const outputs = await sendManyTransaction.getOutputs();
-
-  const containsChangeAddress =
-    Object.keys(outputs).indexOf(options.forcedChangeAddressAssets) > -1;
-
-  expect(containsChangeAddress).to.be.true;
-  return true;
+  const outputAddresses = Object.keys(result.debug.outputs);
+  expect(outputAddresses).to.include(FORCED_ASSET_CHANGE);
 });
 
 it("Forced change address for base currency", async () => {
-  const wallet = await walletPromise;
+  const wallet = await crazyCatWalletPromise;
 
-  //Now lets create a SendManyTransaction and make sure the forced utxo is there
-  const wallet2 = await crazyCatWalletPromise;
-
-  const options = {
+  const result = await wallet.createSendManyTransaction({
     assetName: "BUTTER",
-    forcedChangeAddressAssets: "mkupbsCoqXbqYnheWbJk21hmKPd6TRVcpz",
-    forcedChangeAddressBaseCurrency: "n1iUKTsB5v3R4KAdsh1jwtHHELC6dFpB9G",
-    wallet: wallet2,
-    outputs: { mwPkBNKAnDtZnLEUavx3EV4oXsniqCiugm: 1 },
-  };
-  const sendManyTransaction = new SendManyTransaction(options);
+    forcedChangeAddressAssets: FORCED_ASSET_CHANGE,
+    forcedChangeAddressBaseCurrency: FORCED_BASE_CHANGE,
+    outputs: { [RECIPIENT]: 1 },
+  });
 
-  await sendManyTransaction.loadData();
-
-  const outputs = await sendManyTransaction.getOutputs();
-
-  const addy = options.forcedChangeAddressBaseCurrency;
-  const inc = Object.keys(outputs).indexOf(addy) > -1;
-
-  expect(inc).to.be.true;
-  return true;
+  const outputAddresses = Object.keys(result.debug.outputs);
+  expect(outputAddresses).to.include(FORCED_BASE_CHANGE);
 });

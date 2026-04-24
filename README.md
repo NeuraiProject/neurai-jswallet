@@ -1,232 +1,438 @@
 # neurai-jswallet
 
-Neurai wallet library for JavaScript.
-Non-custodial.
-By default it interacts with the Neurai blockchain using public RPC services from
-https://rpc.ting.finance/ for both testnet and mainnet.
-You are free to use any RPC-service you like, including your own.
-See section [Run your own blockchain node](#run-your-own-blockchain-node) for more info
+Non-custodial Neurai wallet library for JavaScript and TypeScript.
 
-##
+By default it talks to the Neurai blockchain through public RPC services at
+`https://rpc-main.neurai.org/rpc` (mainnet) and `https://rpc-testnet.neurai.org/rpc`
+(testnet). You can point it at any RPC endpoint you control — see
+[Run your own blockchain node](#run-your-own-blockchain-node).
 
-EXPERIMENTAL.
+> **Status:** EXPERIMENTAL. Test thoroughly before using on mainnet.
 
-This lib needs a lot of testing before being used in production.
-Only use on mainnet if you "play around".
-### 
-## Example code
+## What's inside
 
-To run these code examples
+`neurai-jswallet` is a thin wallet shell that wires together the Neurai SDK
+stack. It owns key management, address scanning, UTXO discovery and signing,
+and delegates transaction construction and asset operations to the dedicated
+libraries:
 
-1. Create an empty npm project
-2. Install `@neuraiproject/neurai-jswallet`
-3. Create a .mjs file called `index.mjs`
+| Concern | Library |
+|---|---|
+| Mnemonic / HD-key derivation (legacy + PQ) | [`@neuraiproject/neurai-key`](https://www.npmjs.com/package/@neuraiproject/neurai-key) |
+| Raw transaction builders (payments, transfers, issue, reissue, freeze, tag) | [`@neuraiproject/neurai-create-transaction`](https://www.npmjs.com/package/@neuraiproject/neurai-create-transaction) |
+| Asset orchestration & queries | [`@neuraiproject/neurai-assets`](https://www.npmjs.com/package/@neuraiproject/neurai-assets) |
+| Transaction signing (legacy ECDSA + ML-DSA-44 PQ) | [`@neuraiproject/neurai-sign-transaction`](https://www.npmjs.com/package/@neuraiproject/neurai-sign-transaction) |
+| RPC client | [`@neuraiproject/neurai-rpc`](https://www.npmjs.com/package/@neuraiproject/neurai-rpc) |
 
-### Minimalistic example
+Supported networks: `xna`, `xna-test`, `xna-legacy`, `xna-legacy-test`,
+`xna-pq` (post-quantum mainnet), `xna-pq-test` (post-quantum testnet).
 
+## Install
+
+```sh
+npm install @neuraiproject/neurai-jswallet
 ```
+
+## Build outputs
+
+The package ships three flavours so it can be consumed from any environment:
+
+| File | Format | Use |
+|---|---|---|
+| `dist/index.cjs` | CommonJS | Node, bundlers (`require`) |
+| `dist/index.js` | ESM | Node, bundlers (`import`) |
+| `dist/browser.js` | ESM (deps inlined) | Modern browsers |
+| `dist/NeuraiJsWallet.global.js` | IIFE | Drop in a `<script>` tag — exposes `window.NeuraiJsWallet` |
+
+Examples below use ESM (`.mjs`).
+
+## Quick start
+
+```js
 import NeuraiWallet from "@neuraiproject/neurai-jswallet";
 
-NeuraiWallet.createInstance({
-   mnemonic: "horse sort develop lab chest talk gift damp session sun festival squirrel",
-   network: "xna-test"
-})
-   .then(wallet => wallet.getBalance())
-   .then(console.log);
-```
-### Some stuff you can do
-```
-import NeuraiWallet from "@neuraiproject/neurai-jswallet";
 const wallet = await NeuraiWallet.createInstance({
-  mnemonic:
-    "horse sort develop lab chest talk gift damp session sun festival squirrel",
+  mnemonic: "horse sort develop lab chest talk gift damp session sun festival squirrel",
   network: "xna-test",
 });
 
-//OK now you have your wallet
-
-//Example, get your addresses
-const addresses = wallet.getAddresses();
-
-//Address objects contains meta data about addresses, such as path/private key
-const addressObjects = wallet.getAddressObjects();
- 
-//Get assets the wallet holds (not including mempool transactions) 
-const assets = await wallet.getAssets();
-
-//Get balance of base currency, like XNA, not including mempool transactions
-const balance = await wallet.getBalance();
-
-
-const changeAddress = await wallet.getChangeAddress();
-const receiveAddress = await wallet.getReceiveAddress();
-
-const firstPrivateKey = wallet.getPrivateKeyByAddress(addresses[0]);
-
-//History, is the list of deltas for all the addresses in this wallet
-const history = await wallet.getHistory();
-
-//Get this wallets entries in the mempool right now
-const mempool = await wallet.getMempool();
- 
-//Example send and print out the id, will throw exception if fails
-const sendResult = await wallet.send({
-  toAddress: "muTv54qzXc6ozEc1RH2JbM92jzpBtVJBbw",
-  amount: 1,
-});
-console.log(sendResult.transactionId);
-```
-### Configure to use with your local node
-
-In this example we run a local node in testnet mode, and RPC port is set to 8888
-
-```
-const wallet = await NeuraiWallet.createInstance({
-    mnemonic,
-    network: "xna-test",
-    rpc_password: "mypassword",
-    rpc_username: "myuser",
-    rpc_url: "http://localhost:8888",
-  });
+console.log(await wallet.getBalance());
 ```
 
-### Send XNA and ASSETS
+## Common operations
 
-```
-//index.mjs very important that file extension is .mjs
+```js
 import NeuraiWallet from "@neuraiproject/neurai-jswallet";
 
-//This wallet belongs to account "Crazy Cat" on https://rpc-testnet.neurai.org/signin/
-const options = {
-  mnemonic:
-    "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace",
+const wallet = await NeuraiWallet.createInstance({
+  mnemonic: "horse sort develop lab chest talk gift damp session sun festival squirrel",
   network: "xna-test",
-};
-const wallet = await NeuraiWallet.createInstance(options);
-const addy = await wallet.getReceiveAddress();
-console.log("My receive address", addy);
+});
 
-//Send 100 XNA to Barry Crump on https://rpc-testnet.neurai.org/
-await wallet.send({
-  //Send 100 XNA
-  toAddress: "mhBKhj5FxzBu1h8U6pSB16pwmjP7xo4ehG",
+wallet.getAddresses();             // string[] — all derived addresses
+wallet.getAddressObjects();        // metadata: path, publicKey, privateKey, WIF, seedKey
+await wallet.getBalance();         // base currency balance
+await wallet.getAssets();          // asset balances
+await wallet.getReceiveAddress();  // first unused external address
+await wallet.getChangeAddress();   // first unused internal address
+await wallet.getHistory();         // address deltas
+await wallet.getMempool();         // mempool entries for this wallet's addresses
+await wallet.getUTXOs();           // all UTXOs (XNA + assets)
+await wallet.getAssetUTXOs();      // asset UTXOs only
+wallet.getPrivateKeyByAddress(addr);
+```
+
+## Send XNA and assets
+
+```js
+import NeuraiWallet from "@neuraiproject/neurai-jswallet";
+
+const wallet = await NeuraiWallet.createInstance({
+  mnemonic: "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace",
+  network: "xna-test",
+});
+
+// Send 100 XNA
+const xnaTx = await wallet.send({
+  toAddress: "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy",
   amount: 100,
-  assetName:"XNA",
 });
+console.log("XNA tx:", xnaTx.transactionId);
 
-//Send 313 BUTTER tokens to Barry Crump on https://rpc-testnet.neurai.org/
-const transactionId = await wallet.send({
+// Send 313 BUTTER tokens
+const assetTx = await wallet.send({
   assetName: "BUTTER",
   amount: 313,
-  toAddress: "mhBKhj5FxzBu1h8U6pSB16pwmjP7xo4ehG",
+  toAddress: "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy",
 });
-console.log("Sending", transactionId);
+console.log("Asset tx:", assetTx.transactionId);
 ```
 
-### Send many
+### Send to many recipients
 
-```
-//index.mjs very important that file extension is .mjs
-import NeuraiWallet from "@neuraiproject/neurai-jswallet";
-
-//This wallet belongs to account "Crazy Cat" on https://rpc-testnet.neurai.org/signin/
-const options = {
-  mnemonic:
-    "mesh beef tuition ensure apart picture rabbit tomato ancient someone alter embrace",
-  network: "xna-test",
-};
-const wallet = await NeuraiWallet.createInstance(options);
-
-//Send asset BUTTER to multiple recipients
+```js
 const result = await wallet.sendMany({
   assetName: "BUTTER",
   outputs: {
-    muTv54qzXc6ozEc1RH2JbM92jzpBtVJBbw: 1,
-    mhWahrbRX6xBBrRjCo6ZkazaugXftD1CbM: 2,
+    tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy: 1,
+    tD9hhanNRywGzn2mCwLkmrf3USWAD5REMA: 2,
   },
 });
-
-console.log("Sending", result.transactionId);
-
+console.log(result.transactionId);
 ```
 
-## Passphrase Support (BIP39 25th Word)
+### Build without broadcasting
 
-For enhanced security, you can use an optional passphrase (also known as the "25th word"). 
-This creates a completely different set of addresses from the same mnemonic.
+`send` and `sendMany` build, sign **and** broadcast. To inspect a transaction
+(fee, change, raw hex) before broadcasting, use the `create*` variants:
 
-**Important**: If you lose your passphrase, you cannot recover your wallet even with the mnemonic!
-
-```javascript
-import NeuraiWallet from "@neuraiproject/neurai-jswallet";
-
-const mnemonic = "your twelve word mnemonic phrase here";
-const passphrase = "my secret passphrase"; // Optional but highly secure
-
-// Create wallet with passphrase
-const wallet = await NeuraiWallet.createInstance({
-  mnemonic: mnemonic,
-  network: "xna-test",
-  passphrase: passphrase  // This creates a completely different wallet
+```js
+const draft = await wallet.createTransaction({
+  toAddress: "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy",
+  amount: 1,
 });
 
-// Without passphrase (or empty string) - creates different addresses
-const walletNoPass = await NeuraiWallet.createInstance({
-  mnemonic: mnemonic,
-  network: "xna-test"
-  // No passphrase = different wallet than above
+console.log(draft.debug.fee);
+console.log(draft.debug.signedTransaction);   // hex, ready to broadcast
+console.log(draft.debug.rawUnsignedTransaction);
+
+// Broadcast manually when ready
+await wallet.sendRawTransaction(draft.debug.signedTransaction);
+```
+
+`createSendManyTransaction({ outputs, assetName })` does the same for
+multi-output transactions.
+
+### Forced UTXOs and change addresses
+
+`send`/`sendMany`/`createTransaction` accept optional fine-grained controls:
+
+```js
+await wallet.sendMany({
+  assetName: "BUTTER",
+  outputs: { tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy: 1 },
+  forcedUTXOs: [
+    {
+      utxo: { address, assetName, txid, outputIndex, script, satoshis, value },
+      address,
+      privateKey: addressObject.WIF, // or seedKey object for PQ
+    },
+  ],
+  forcedChangeAddressBaseCurrency: "tKevLHxnRC4srYDP6vGrYPRESkL9p4wd5Y",
+  forcedChangeAddressAssets:       "tL1vjZj1KYd1FuAcCv4KWQPYMsJxA2rJoH",
 });
 ```
 
-**Use cases for passphrase:**
-- Extra layer of security beyond the mnemonic
-- Create multiple wallets from a single mnemonic
-- Plausible deniability (different passphrases = different wallets)
+## Asset operations
 
-## API
+The wallet exposes a full asset toolkit through `wallet.assets` — and as
+shortcuts directly on the wallet — backed by `@neuraiproject/neurai-assets`.
 
-When you create your instance of a wallet you can specify some stuff.
+Every method accepts these common options:
 
-You can specify your own RPC node URL and username/password.
+| Option | Default | Meaning |
+|---|---|---|
+| `broadcast` | `true` | Sign and submit. Set `false` to inspect only. |
+| `toAddress` | `wallet.getReceiveAddress()` | Recipient of the issued / reissued asset |
+| `changeAddress` | `wallet.getChangeAddress()` | XNA change destination |
 
-```
-export interface IOptions {
-    mnemonic: string;
-    network?: ChainType; (that is "xna" | "xna-test")
-    rpc_username?: string;
-    rpc_password?: string;
-    rpc_url?: string;
-    passphrase?: string;
+All return an `AssetOpResult`:
+
+```ts
+{
+  transactionId: string | null,
+  rawTx: string,
+  signedTransaction: string,
+  fee: number,
+  burnAmount: number,
+  changeAddress: string | null,
+  changeAmount: number | null,
+  inputs: Array<{ txid: string; vout: number; address: string }>,
+  outputs: Array<Record<string, unknown>>,
 }
 ```
 
-[Check the TypeScript definitions ](./dist/types.d.ts) for all the details
+### Issue assets
+
+```js
+// ROOT asset
+await wallet.issueRoot({
+  assetName: "MYTOKEN",
+  quantity: 1_000_000,
+  units: 2,            // 0–8 decimals
+  reissuable: true,
+  ipfsHash: undefined, // optional metadata
+});
+
+// SUB asset (requires owning the parent)
+await wallet.issueSub({
+  assetName: "MYTOKEN/SUB",
+  quantity: 100,
+  units: 0,
+  reissuable: false,
+});
+
+// UNIQUE assets (NFTs)
+await wallet.issueUnique({
+  rootName: "MYTOKEN",
+  assetTags: ["#001", "#002", "#003"],
+  ipfsHashes: [hash1, hash2, hash3],   // optional, one per tag
+});
+
+// QUALIFIER (KYC tag)
+await wallet.issueQualifier({
+  assetName: "#KYC",
+  quantity: 10,
+});
+
+// RESTRICTED asset (compliance / verifier)
+await wallet.issueRestricted({
+  assetName: "$STOCK",
+  quantity: 1_000_000,
+  verifierString: "#KYC",
+  units: 0,
+  reissuable: true,
+});
+
+// DEPIN (soulbound)
+await wallet.issueDepin({
+  assetName: "DEVICE001",
+  quantity: 1,
+  ipfsHash: "Qm...",
+});
+```
+
+### Reissue
+
+```js
+await wallet.reissue({
+  assetName: "MYTOKEN",
+  quantity: 500_000,        // additional supply
+  units: 2,
+  reissuable: true,
+});
+
+await wallet.reissueRestricted({
+  assetName: "$STOCK",
+  quantity: 250_000,
+  verifierString: "#KYC",   // optional new verifier
+});
+```
+
+### Tag / untag (qualifier)
+
+```js
+await wallet.tagAddresses({
+  qualifierName: "#KYC",
+  targetAddresses: [
+    "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy",
+    "tD9hhanNRywGzn2mCwLkmrf3USWAD5REMA",
+  ],
+});
+
+await wallet.untagAddresses({
+  qualifierName: "#KYC",
+  targetAddresses: ["tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy"],
+});
+```
+
+### Freeze (restricted assets)
+
+```js
+// Freeze specific addresses for a restricted asset
+await wallet.freezeAddresses({
+  assetName: "$STOCK",
+  targetAddresses: ["tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy"],
+});
+
+await wallet.unfreezeAddresses({
+  assetName: "$STOCK",
+  targetAddresses: ["tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy"],
+});
+
+// Freeze the whole asset globally
+await wallet.freezeAssetGlobally({ assetName: "$STOCK" });
+await wallet.unfreezeAssetGlobally({ assetName: "$STOCK" });
+```
+
+## Asset queries
+
+Read-only blockchain queries are exposed through `wallet.assets.queries`:
+
+```js
+const data = await wallet.assets.queries.getAssetData("BUTTER");
+const exists = await wallet.assets.queries.assetExists("BUTTER");
+const all = await wallet.assets.queries.listAssets("MY*", true, 100, 0);
+const mine = await wallet.assets.queries.listMyAssets();
+const holders = await wallet.assets.queries.listAddressesByAsset("BUTTER");
+const balances = await wallet.assets.queries.listAssetBalancesByAddress(addr);
+
+// Qualifiers / restrictions
+await wallet.assets.queries.checkAddressTag(addr, "#KYC");
+await wallet.assets.queries.listTagsForAddress(addr);
+await wallet.assets.queries.checkAddressRestriction(addr, "$STOCK");
+await wallet.assets.queries.isAddressFrozen(addr, "$STOCK");
+await wallet.assets.queries.checkGlobalRestriction("$STOCK");
+await wallet.assets.queries.getVerifierString("$STOCK");
+
+// DEPIN
+await wallet.assets.queries.listDepinHolders("DEVICE001");
+await wallet.assets.queries.checkDepinValidity("DEVICE001", addr);
+```
+
+## Sweep an external private key
+
+Move every UTXO held by an arbitrary WIF private key into your wallet. Only
+legacy networks are supported — sweeping PQ keys is not allowed.
+
+```js
+const result = await wallet.sweep("KxA0...WIF...", true /* broadcast */);
+console.log(result.transactionId);
+```
+
+## Post-quantum wallets (PQ)
+
+`xna-pq` and `xna-pq-test` use NIP-022 PQ-HD derivation (every path level
+hardened) and ML-DSA-44 signatures. Address format is bech32m starting with
+`nq1` / `tnq1`.
+
+```js
+const pq = await NeuraiWallet.createInstance({
+  mnemonic: "result pact model attract result puzzle final boss private educate luggage era",
+  network: "xna-pq-test",
+  offlineMode: true, // skip RPC discovery — useful when the node has not yet indexed PQ
+});
+
+const addr = await pq.getReceiveAddress();    // tnq1...
+const obj = pq.getAddressObjects()[0];
+console.log(obj.seedKey);                     // hex ML-DSA-44 seed
+```
+
+> The same `wallet.send`, `wallet.createTransaction`, asset operations etc.
+> all work for PQ wallets — the signer detects the address type and produces a
+> ML-DSA-44 witness.
+
+## Passphrase support (BIP39 25th word)
+
+An optional passphrase derives a completely different set of addresses from the
+same mnemonic. **If you lose the passphrase you cannot recover the wallet
+even with the mnemonic.**
+
+```js
+const wallet = await NeuraiWallet.createInstance({
+  mnemonic: "your twelve word mnemonic phrase here",
+  network: "xna-test",
+  passphrase: "my secret passphrase",   // omit or "" for the default wallet
+});
+```
+
+Use cases:
+- Extra layer of security on top of the mnemonic
+- Multiple wallets from a single seed
+- Plausible deniability (different passphrases → different wallets)
+
+## Configuration
+
+```ts
+interface IOptions {
+  mnemonic: string;
+  network?: "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test" | "xna-pq" | "xna-pq-test";
+  passphrase?: string;
+  rpc_url?: string;
+  rpc_username?: string;
+  rpc_password?: string;
+  minAmountOfAddresses?: number;   // pre-derive at least N addresses on init
+  offlineMode?: boolean;           // skip every RPC call during init/address selection
+}
+```
+
+See [`dist/entries/index.d.ts`](./dist/entries/index.d.ts) for the full TypeScript surface.
+
+### Use a custom RPC
+
+```js
+const wallet = await NeuraiWallet.createInstance({
+  mnemonic,
+  network: "xna-test",
+  rpc_url:      "http://localhost:8888",
+  rpc_username: "myuser",
+  rpc_password: "mypassword",
+});
+```
 
 ### Run your own blockchain node
 
-If you want to run your own internet exposed Node, checkout our RPC proxy.
-With **RPC proxy** and **Cloudlare** you can get a secure endpoint like
-https://rpc.mydomain.com/rpc
-checkout
+To expose your own node over HTTPS:
 
-- https://github.com/neuraiproject/neurai-rpc-proxy
-- https://www.cloudflare.com/products/tunnel/
+- [`neurai-rpc-proxy`](https://github.com/neuraiproject/neurai-rpc-proxy)
+- [Cloudflare Tunnel](https://www.cloudflare.com/products/tunnel/)
 
-## Advanced - pure RPC
+## Advanced — direct RPC access
 
-You have access to the underlaying RPC function, wallet.rpc.
-See example
+Every wallet exposes the underlying RPC function as `wallet.rpc`:
 
+```js
+const wallet = await NeuraiWallet.createInstance({ mnemonic, network: "xna-test" });
+
+const blockhash = await wallet.rpc("getbestblockhash", []);
+const block = await wallet.rpc("getblock", [blockhash]);
+console.log(block);
 ```
-import NeuraiWallet from "@neuraiproject/neurai-jswallet";
-async function main(){
-  const wallet = await NeuraiWallet.createInstance({
+
+## Use from a browser via `<script>`
+
+```html
+<script src="https://unpkg.com/@neuraiproject/neurai-jswallet/dist/NeuraiJsWallet.global.js"></script>
+<script type="module">
+  const wallet = await NeuraiJsWallet.createInstance({
     mnemonic: "horse sort develop lab chest talk gift damp session sun festival squirrel",
     network: "xna-test",
+    offlineMode: true,
   });
-  const blockhash = await wallet.rpc("getbestblockhash", []);
-  const block = await wallet.rpc("getblock", [blockhash]);
-  console.log(block);
-}
-main();
+  console.log(await wallet.getReceiveAddress());
+</script>
 ```
+
+## License
+
+MIT

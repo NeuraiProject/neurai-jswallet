@@ -1,6 +1,5 @@
 import { getRPC, methods } from "@neuraiproject/neurai-rpc";
 import NeuraiKey from "@neuraiproject/neurai-key";
-import Signer from "@neuraiproject/neurai-sign-transaction";
 import {
   ChainType,
   IAddressDelta,
@@ -15,15 +14,16 @@ import {
 } from "./Types";
 
 import { sweep } from "./blockchain/sweep";
-import { Transaction } from "./blockchain/Transaction";
-import { SendManyTransaction } from "./blockchain/SendManyTransaction";
+import {
+  broadcastBuilt,
+  createSendManyForOptions,
+  createTransactionForOptions,
+} from "./blockchain/payments";
+import { WalletAssets } from "./blockchain/assetOps";
 import { getBaseCurrencyByNetwork } from "./getBaseCurrencyByNetwork";
 import { getBalance } from "./getBalance";
 import { ValidationError } from "./Errors";
 import { getAssets } from "./getAssets";
-
-export { Transaction };
-export { SendManyTransaction };
 const URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
 // NIP-022 PQ-HD (neurai-key >= 4.0.0): every path level must be hardened.
@@ -72,6 +72,16 @@ export class Wallet {
   addressPosition = 0;
   baseCurrency = "XNA";
   offlineMode = false;
+  /**
+   * High-level asset operations (issue/reissue/freeze/tag) and queries,
+   * backed by `@neuraiproject/neurai-assets`. Initialised lazily on first
+   * access so the constructor stays cheap.
+   */
+  private _assets: WalletAssets | null = null;
+  get assets(): WalletAssets {
+    if (!this._assets) this._assets = new WalletAssets(this);
+    return this._assets;
+  }
   setBaseCurrency(currency: string) {
     this.baseCurrency = currency;
   }
@@ -120,7 +130,8 @@ export class Wallet {
     }
     if (
       options.network === "xna-test" ||
-      options.network === "xna-legacy-test"
+      options.network === "xna-legacy-test" ||
+      options.network === "xna-pq-test"
     ) {
       url = URL_NEURAI_TESTNET;
     }
@@ -427,201 +438,61 @@ export class Wallet {
   }
 
   async send(options: ISend): Promise<ISendResult> {
-    //ACTUAL SENDING TRANSACTION
-
-    //Important, do not swallow the exceptions/errors of createTransaction, let them fly
-    const sendResult: ISendResult = await this.createTransaction(options);
-
-    const id = (await this.rpc("sendrawtransaction", [
-      sendResult.debug.signedTransaction,
-    ])) as string;
-    sendResult.transactionId = id;
-
-    return sendResult;
+    const sendResult = await this.createTransaction(options);
+    return broadcastBuilt(this, sendResult);
   }
 
-  async sendMany({ outputs, assetName }: ISendManyOptions) {
-    const options = {
-      wallet: this,
+  async sendMany({ outputs, assetName }: ISendManyOptions): Promise<ISendResult> {
+    const sendResult = await this.createSendManyTransaction({
       outputs,
       assetName,
-    };
-    const sendResult: ISendResult = await this.createSendManyTransaction(
-      options
-    );
-
-    //ACTUAL SENDING TRANSACTION
-    //Important, do not swallow the exceptions/errors of createSendManyTransaction, let them fly
-
-    try {
-      const id = (await this.rpc("sendrawtransaction", [
-        sendResult.debug.signedTransaction,
-      ])) as string;
-      sendResult.transactionId = id;
-
-      return sendResult;
-    } catch (e) {
-      throw new Error(
-        "Error while sending, perhaps you have pending transaction? Please try again."
-      );
-    }
+      wallet: this,
+    });
+    return broadcastBuilt(this, sendResult);
   }
+
   /**
-   * Does all the heavy lifting regarding creating a SendManyTransaction
-   * but it does not broadcast the actual transaction.
-   * Perhaps the user wants to accept the transaction fee?
-   * @param options
-   * @returns An transaction that has not been broadcasted
+   * Build (but do not broadcast) a single-output transaction.
+   * Returns an `ISendResult` with `signedTransaction` ready to broadcast.
    */
   async createTransaction(options: ISend): Promise<ISendResult> {
-    const { amount, toAddress } = options;
-    let { assetName } = options;
-
-    if (!assetName) {
-      assetName = this.baseCurrency;
-    }
-
-    //Validation
-    if (!toAddress) {
-      throw Error("Wallet.send toAddress is mandatory");
-    }
-    if (!amount) {
-      throw Error("Wallet.send amount is mandatory");
-    }
-    const changeAddress = await this.getChangeAddress();
-
-    if (changeAddress === toAddress) {
-      throw new Error("Change address cannot be the same as toAddress");
-    }
-    const transaction = new Transaction({
-      assetName,
-      amount,
-      toAddress,
+    return createTransactionForOptions(this, {
+      amount: options.amount,
+      assetName: options.assetName ?? this.baseCurrency,
+      toAddress: options.toAddress,
       wallet: this,
-      /* optional */
-      forcedChangeAddressAssets: options.forcedChangeAddressAssets,
       forcedUTXOs: options.forcedUTXOs,
       forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
-    });
-
-    await transaction.loadData();
-
-    const inputs = transaction.getInputs();
-    const outputs = await transaction.getOutputs();
-
-    const privateKeys = transaction.getPrivateKeys();
-
-    const raw = (await this.rpc("createrawtransaction", [inputs, outputs])) as string;
-    const signed = Signer.sign(
-      this.network,
-      raw,
-      transaction.getUTXOs(),
-      privateKeys
-    );
-
-    try {
-      //   const id = await this.rpc("sendrawtransaction", [signed]);
-      const sendResult: ISendResult = {
-        transactionId: null,
-        debug: {
-          amount,
-          assetName,
-          fee: transaction.getFee(),
-          inputs,
-          outputs,
-          privateKeys,
-          rawUnsignedTransaction: raw,
-          xnaChangeAmount: transaction.getBaseCurrencyChange(),
-          xnaAmount: transaction.getBaseCurrencyAmount(),
-          signedTransaction: signed,
-          UTXOs: transaction.getUTXOs(),
-          walletMempool: transaction.getWalletMempool(),
-        },
-      };
-      return sendResult;
-    } catch (e) {
-      throw new Error(
-        "Error while sending, perhaps you have pending transaction? Please try again."
-      );
-    }
+      ...(options.forcedChangeAddressAssets
+        ? { forcedChangeAddressAssets: options.forcedChangeAddressAssets }
+        : {}),
+    } as any);
   }
 
   /**
-   * Does all the heavy lifting regarding creating a transaction
-   * but it does not broadcast the actual transaction.
-   * Perhaps the user wants to accept the transaction fee?
-   * @param options
-   * @returns An transaction that has not been broadcasted
+   * Build (but do not broadcast) a multi-output transaction.
    */
   async createSendManyTransaction(options: {
     assetName?: string;
     outputs: { [key: string]: number };
+    wallet?: Wallet;
+    forcedUTXOs?: import("./Types").IForcedUTXO[];
+    forcedChangeAddressAssets?: string;
+    forcedChangeAddressBaseCurrency?: string;
   }): Promise<ISendResult> {
-    let { assetName } = options;
-
-    if (!assetName) {
-      assetName = this.baseCurrency;
-    }
-
-    //Validation
-    if (!options.outputs) {
-      throw Error("Wallet.createSendManyTransaction outputs is mandatory");
-    } else if (Object.keys(options.outputs).length === 0) {
+    if (!options.outputs || Object.keys(options.outputs).length === 0) {
       throw new ValidationError(
-        "outputs is mandatory, shoud be an object with address as keys and amounts (numbers) as values"
+        "outputs is mandatory, should be an object with address as keys and amounts (numbers) as values",
       );
     }
-    const changeAddress = await this.getChangeAddress();
-
-    const toAddresses = Object.keys(options.outputs);
-    if (toAddresses.includes(changeAddress)) {
-      throw new Error("You cannot send to your current change address");
-    }
-    const transaction = new SendManyTransaction({
-      assetName,
-      outputs: options.outputs,
+    return createSendManyForOptions(this, {
       wallet: this,
+      assetName: options.assetName ?? this.baseCurrency,
+      outputs: options.outputs,
+      forcedUTXOs: options.forcedUTXOs,
+      forcedChangeAddressAssets: options.forcedChangeAddressAssets,
+      forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
     });
-
-    await transaction.loadData();
-
-    const inputs = transaction.getInputs();
-    const outputs = await transaction.getOutputs();
-
-    const privateKeys = transaction.getPrivateKeys();
-
-    const raw = (await this.rpc("createrawtransaction", [inputs, outputs])) as string;
-    const signed = Signer.sign(
-      this.network,
-      raw,
-      transaction.getUTXOs(),
-      privateKeys
-    );
-
-    try {
-      const sendResult: ISendResult = {
-        transactionId: null,
-        debug: {
-          amount: transaction.getAmount(),
-          assetName,
-          fee: transaction.getFee(),
-          inputs,
-          outputs,
-          privateKeys,
-          rawUnsignedTransaction: raw,
-          xnaChangeAmount: transaction.getBaseCurrencyChange(),
-          xnaAmount: transaction.getBaseCurrencyAmount(),
-          signedTransaction: signed,
-          UTXOs: transaction.getUTXOs(),
-          walletMempool: transaction.getWalletMempool(),
-        },
-      };
-      return sendResult;
-    } catch (e) {
-      throw new Error(
-        "Error while sending, perhaps you have pending transaction? Please try again."
-      );
-    }
   }
 
   /**
@@ -642,6 +513,53 @@ export class Wallet {
   async getBalance() {
     const a = this.getAddresses();
     return getBalance(this, a);
+  }
+
+  // --- Asset operation shortcuts ---
+  // Each delegates to wallet.assets so callers can write either:
+  //   wallet.issueRoot({...})           or   wallet.assets.issueRoot({...})
+
+  issueRoot(params: Parameters<WalletAssets["issueRoot"]>[0]) {
+    return this.assets.issueRoot(params);
+  }
+  issueSub(params: Parameters<WalletAssets["issueSub"]>[0]) {
+    return this.assets.issueSub(params);
+  }
+  issueDepin(params: Parameters<WalletAssets["issueDepin"]>[0]) {
+    return this.assets.issueDepin(params);
+  }
+  issueUnique(params: Parameters<WalletAssets["issueUnique"]>[0]) {
+    return this.assets.issueUnique(params);
+  }
+  issueQualifier(params: Parameters<WalletAssets["issueQualifier"]>[0]) {
+    return this.assets.issueQualifier(params);
+  }
+  issueRestricted(params: Parameters<WalletAssets["issueRestricted"]>[0]) {
+    return this.assets.issueRestricted(params);
+  }
+  reissue(params: Parameters<WalletAssets["reissue"]>[0]) {
+    return this.assets.reissue(params);
+  }
+  reissueRestricted(params: Parameters<WalletAssets["reissueRestricted"]>[0]) {
+    return this.assets.reissueRestricted(params);
+  }
+  tagAddresses(params: Parameters<WalletAssets["tagAddresses"]>[0]) {
+    return this.assets.tagAddresses(params);
+  }
+  untagAddresses(params: Parameters<WalletAssets["untagAddresses"]>[0]) {
+    return this.assets.untagAddresses(params);
+  }
+  freezeAddresses(params: Parameters<WalletAssets["freezeAddresses"]>[0]) {
+    return this.assets.freezeAddresses(params);
+  }
+  unfreezeAddresses(params: Parameters<WalletAssets["unfreezeAddresses"]>[0]) {
+    return this.assets.unfreezeAddresses(params);
+  }
+  freezeAssetGlobally(params: Parameters<WalletAssets["freezeAssetGlobally"]>[0]) {
+    return this.assets.freezeAssetGlobally(params);
+  }
+  unfreezeAssetGlobally(params: Parameters<WalletAssets["unfreezeAssetGlobally"]>[0]) {
+    return this.assets.unfreezeAssetGlobally(params);
   }
   async convertMempoolEntryToUTXO(mempoolEntry: IMempoolEntry): Promise<IUTXO> {
     //Mempool items might not have the script attbribute, we need it

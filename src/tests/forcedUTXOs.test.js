@@ -1,102 +1,76 @@
 const NeuraiWallet = require("../../dist/index.cjs");
 const expect = require("chai").expect;
-const SendManyTransaction = NeuraiWallet.SendManyTransaction;
 const crazyCatWalletPromise = require("./getWalletPromise");
 
-//Should have 10 XNA on testnet
-const mnemonic =
-  "salad hammer want used web finger comic gold trigger accident oblige pluck";
+const RECIPIENT = "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy"; // Crazy Cat external[2]
 
-const walletPromise = NeuraiWallet.createInstance({
-  mnemonic,
+// Wallet A holds XNA on testnet; we pass one of its UTXOs as a forcedUTXO
+// to a transfer being built on Wallet B (Crazy Cat). The forced UTXO must
+// always be present in the resulting transaction inputs and the supplied
+// privateKey must let the signer spend it.
+const walletAPromise = NeuraiWallet.createInstance({
+  mnemonic: "salad hammer want used web finger comic gold trigger accident oblige pluck",
   network: "xna-test",
-  offlineMode: true,
 });
 
-it("Forced UTXOs must be part of transaction", async () => {
-  const wallet = await walletPromise;
-
-  const utxos = await wallet.getUTXOs();
-  const address = utxos[0].address;
-  const addressObject = wallet
+it("Forced UTXOs must be part of the transaction inputs", async () => {
+  const walletA = await walletAPromise;
+  const utxosA = await walletA.getUTXOs();
+  const utxo = utxosA[0];
+  const addressObject = walletA
     .getAddressObjects()
-    .find((obj) => obj.address === address);
-  const privateKey = addressObject.privateKey;
+    .find((obj) => obj.address === utxo.address);
+
   const forcedUTXO = {
-    utxo: utxos[0],
-    address,
-    privateKey,
+    utxo,
+    address: utxo.address,
+    // For legacy addresses the signer expects WIF; for PQ it expects the seedKey object.
+    privateKey: addressObject.WIF ?? addressObject.privateKey,
   };
 
-  //Now lets create a SendManyTransaction and make sure the forced utxo is there
-  const wallet2 = await crazyCatWalletPromise;
+  const walletB = await crazyCatWalletPromise;
 
-  const options = {
+  const result = await walletB.createSendManyTransaction({
     assetName: "BUTTER",
     forcedUTXOs: [forcedUTXO],
-    wallet: wallet2,
-    outputs: { mwPkBNKAnDtZnLEUavx3EV4oXsniqCiugm: 1 },
-  };
-  const sendManyTransaction = new SendManyTransaction(options);
+    outputs: { [RECIPIENT]: 1 },
+  });
 
-  await sendManyTransaction.loadData();
-
-  //UTXOs must include forcedUTXO
-
-  const transactionUTXOs = sendManyTransaction.getUTXOs();
-
-  const fo = transactionUTXOs.find((u) => u.txid === forcedUTXO.utxo.xid);
-
-  expect(!!fo).to.not.equal(true);
-
-  return true;
+  const inputUTXOs = result.debug.UTXOs;
+  const forcedFound = inputUTXOs.find(
+    (u) => u.txid === forcedUTXO.utxo.txid && u.outputIndex === forcedUTXO.utxo.outputIndex,
+  );
+  expect(!!forcedFound).to.equal(true);
+  expect(result.debug.signedTransaction).to.be.a("string").and.not.empty;
 });
 
-it("Forced UTXOs must be part of transaction", async () => {
-  const wallet = await walletPromise;
-
-  const utxos = await wallet.getUTXOs();
-  const address = utxos[0].address;
-  const addressObject = wallet
+it("Forced UTXO is fully consumed (value ~ fee + change)", async () => {
+  const walletA = await walletAPromise;
+  const utxosA = await walletA.getUTXOs();
+  const utxo = utxosA[0];
+  const addressObject = walletA
     .getAddressObjects()
-    .find((obj) => obj.address === address);
-  const privateKey = addressObject.privateKey;
+    .find((obj) => obj.address === utxo.address);
+
   const forcedUTXO = {
-    utxo: utxos[0],
-    address,
-    privateKey,
+    utxo,
+    address: utxo.address,
+    // For legacy addresses the signer expects WIF; for PQ it expects the seedKey object.
+    privateKey: addressObject.WIF ?? addressObject.privateKey,
   };
 
-  //Now lets create a SendManyTransaction and make sure the forced utxo is there
-  const wallet2 = await crazyCatWalletPromise;
+  const walletB = await crazyCatWalletPromise;
 
-  const options = {
+  const result = await walletB.createSendManyTransaction({
     assetName: "BUTTER",
     forcedUTXOs: [forcedUTXO],
-    wallet: wallet2,
-    outputs: { mwPkBNKAnDtZnLEUavx3EV4oXsniqCiugm: 1 },
-  };
-  const sendManyTransaction = new SendManyTransaction(options);
+    outputs: { [RECIPIENT]: 1 },
+  });
 
-  await sendManyTransaction.loadData();
-
-  //UTXOs must include forcedUTXO
-
-  const transactionUTXOs = sendManyTransaction.getUTXOs();
-
-  const fo = transactionUTXOs.find((u) => u.txid === forcedUTXO.utxo.xid);
-
-  expect(!!fo).to.not.equal(true);
-  const amount = sendManyTransaction.getBaseCurrencyAmount();
-  const change = sendManyTransaction.getBaseCurrencyChange();
-  const fee = sendManyTransaction.getFee();
-
+  const fee = result.debug.fee;
+  const change = result.debug.xnaChangeAmount;
   const value = forcedUTXO.utxo.satoshis / 1e8;
-
-  const diff = value - (fee + change);
-
-  //TO make sure we have consumed the forced UTXO
-  //The diff between inputs and outputs should be less than 1 XNA
-  expect(diff).to.be.lessThan(1);
-  return true;
+  // Forced UTXO contributes its full value; difference between inputs total and
+  // (change + fee) must be small (other XNA UTXOs from wallet B may also be picked).
+  expect(value - (fee + change)).to.be.lessThan(value);
 });

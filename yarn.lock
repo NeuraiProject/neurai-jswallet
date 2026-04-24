@@ -26,12 +26,27 @@
   resolved "https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz"
   integrity sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==
 
+"@neuraiproject/neurai-assets@1.2.5":
+  version "1.2.5"
+  resolved "https://registry.npmjs.org/@neuraiproject/neurai-assets/-/neurai-assets-1.2.5.tgz"
+  integrity sha512-JaKVcQEt1Ai2NX/TuHYuWaE6Ph+BBnHs5GAvl1omcB0qF0yaDgdhS0Oj25HDO0J8r2tbRjGFSomfq7u3reJ0PQ==
+
 "@neuraiproject/neurai-create-transaction@^0.2.0":
   version "0.2.0"
   resolved "https://registry.npmjs.org/@neuraiproject/neurai-create-transaction/-/neurai-create-transaction-0.2.0.tgz"
   integrity sha512-XPGREfIcwaHW79EB6rbo7OdpoOC8ycdN5urpOcm4LlmJAQnHPv0pDSS+zQLheeHzPpLMfUC3ZEFQTBhx2xdwgQ==
   dependencies:
     "@neuraiproject/neurai-key" "^3.1.0"
+    bech32 "^2.0.0"
+    bs58 "^6.0.0"
+    bs58check "^4.0.0"
+
+"@neuraiproject/neurai-create-transaction@0.3.1":
+  version "0.3.1"
+  resolved "https://registry.npmjs.org/@neuraiproject/neurai-create-transaction/-/neurai-create-transaction-0.3.1.tgz"
+  integrity sha512-yCfF58PqQZemFeVqJDbrSehZ9Bb/9zIAtNIwNyCMwhma0+srO2qaYy79iEHQMOFyaEA34UzAAuh3D2ggAWDtrg==
+  dependencies:
+    "@neuraiproject/neurai-key" "^4.0.0"
     bech32 "^2.0.0"
     bs58 "^6.0.0"
     bs58check "^4.0.0"
@@ -47,7 +62,7 @@
     "@scure/bip39" "^2.0.1"
     bech32 "^2.0.0"
 
-"@neuraiproject/neurai-key@4.0.0":
+"@neuraiproject/neurai-key@^4.0.0", "@neuraiproject/neurai-key@4.0.0":
   version "4.0.0"
   resolved "https://registry.npmjs.org/@neuraiproject/neurai-key/-/neurai-key-4.0.0.tgz"
   integrity sha512-VDnxkpa9UKZDcYI2koRZiwuIeZSaPM7HvNUaPhDF+fMwDLEuge6jczCylBs4c6xnu2u+Qsb/M00GPN60Q7D9DA==
@@ -58,7 +73,7 @@
     "@scure/bip39" "^2.0.1"
     bech32 "^2.0.0"
 
-"@neuraiproject/neurai-rpc@0.4.7":
+"@neuraiproject/neurai-rpc@^0.4.7", "@neuraiproject/neurai-rpc@0.4.7":
   version "0.4.7"
   resolved "https://registry.npmjs.org/@neuraiproject/neurai-rpc/-/neurai-rpc-0.4.7.tgz"
   integrity sha512-TOUyNzZ2Ko70ECXElfXUFLI2GBT4i3gickICxF77SAy21JYP6zQa5LkqpMt9p1xLcZUr272ZWQURafvl5lajGg==

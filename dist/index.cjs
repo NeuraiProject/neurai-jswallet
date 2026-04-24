@@ -4,7 +4,9 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var neuraiRpc = require('@neuraiproject/neurai-rpc');
 var NeuraiKey = require('@neuraiproject/neurai-key');
+var neuraiCreateTransaction = require('@neuraiproject/neurai-create-transaction');
 var Signer = require('@neuraiproject/neurai-sign-transaction');
+var NeuraiAssets = require('@neuraiproject/neurai-assets');
 
 class ValidationError extends Error {
     constructor(message) {
@@ -19,364 +21,138 @@ class InsufficientFundsError extends Error {
     }
 }
 
-function removeDuplicates(originalArray) {
-    const uniqueArray = [];
-    const seen = new Set();
-    originalArray.forEach((item) => {
-        const uniqueIdentifier = item.txid + item.outputIndex;
-        if (!seen.has(uniqueIdentifier)) {
-            seen.add(uniqueIdentifier);
-            uniqueArray.push(item);
-        }
-    });
-    return uniqueArray;
-}
-
 const LEGACY_INPUT_VBYTES = 148;
 const PQ_INPUT_VBYTES = 976;
 const LEGACY_OUTPUT_BYTES = 34;
 const PQ_OUTPUT_BYTES = 31;
+const DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
+const SATS_PER_XNA = 100_000_000;
+function xnaToSats(xna) {
+    // Avoid floating point drift by going through string-rounded sats
+    return BigInt(Math.round(xna * SATS_PER_XNA));
+}
 function isPQAddress(address) {
     return address.startsWith("nq1") || address.startsWith("tnq1");
 }
-function isPQScript(script) {
-    return script.startsWith("5114");
+function isPQUTXO(utxo) {
+    return utxo.script?.startsWith("5114") === true;
 }
-/**
- * SendManyTransaction Class
- *
- * This class is responsible for calculating the necessary steps to broadcast a Neurai transaction:
- * 1) Identify available UTXOs that are not already spent in the mempool.
- * 2) Determine the required number of UTXOs for creating this transaction.
- * 3) Define the transaction's inputs and outputs.
- * 4) Sign the transaction.
- *
- * Note: this class does not do the actual broadcasting; it is up to the user.
- *
- * How does it work?
- * 1) Create an instance:
- *    const transaction = new SendManyTransaction({
- *      assetName,
- *      outputs: options.outputs,
- *      wallet: this,
- *    });
- *
- * 2) Load data from the network:
- *    transaction.loadData();
- */
-class SendManyTransaction {
-    _allUTXOs; //all UTXOs that we know of
-    assetName;
-    // Fee rate used by getFee(): XNA per KB
-    feerate = 0.05;
-    wallet;
-    outputs;
-    walletMempool = [];
-    forcedUTXOs = [];
-    forcedChangeAddressBaseCurrency = "";
-    forcedChangeAddressAssets = "";
-    constructor(options) {
-        const { wallet, outputs, assetName } = options;
-        this.assetName = !assetName ? wallet.baseCurrency : assetName;
-        this.wallet = wallet;
-        this.outputs = outputs;
-        this.forcedChangeAddressAssets = options.forcedChangeAddressAssets;
-        this.forcedChangeAddressBaseCurrency =
-            options.forcedChangeAddressBaseCurrency;
-        //Tag forced UTXOs with the "force" flag
-        if (options.forcedUTXOs) {
-            options.forcedUTXOs.map((f) => (f.utxo.forced = true));
-            this.forcedUTXOs = options.forcedUTXOs;
-        }
-    }
-    /**
-     *
-     * @returns forced UTXOs for this transaction, that means "no matter want, spend this UTXO"
-     */
-    getForcedUTXOs() {
-        return this.forcedUTXOs;
-    }
-    getWalletMempool() {
-        return this.walletMempool;
-    }
-    getSizeInKB() {
-        // We need to estimate the size of the transaction to calculate the fee,
-        // which in turn affects the transaction size itself.
-        // This is a chicken-and-egg situation, requiring an initial size estimate.
-        const utxos = this.predictUTXOs();
-        const hasPQInputs = utxos.some((utxo) => isPQScript(utxo.script));
-        const baseSize = hasPQInputs ? 12 : 10; // Segwit marker/flag only when witness is present
-        const inputBytes = utxos.reduce((total, utxo) => {
-            return total + (isPQScript(utxo.script) ? PQ_INPUT_VBYTES : LEGACY_INPUT_VBYTES);
-        }, 0);
-        const outputBytes = Object.keys(this.outputs).reduce((total, address) => {
-            return total + (isPQAddress(address) ? PQ_OUTPUT_BYTES : LEGACY_OUTPUT_BYTES);
-        }, 0);
-        const kb = (baseSize + inputBytes + outputBytes) / 1024;
-        return kb;
-    }
-    async loadData() {
-        //Load blockchain information async, and wait for it
-        const mempoolPromise = this.wallet.getMempool();
-        const assetUTXOsPromise = this.wallet.getAssetUTXOs();
-        const baseCurencyUTXOsPromise = this.wallet.getUTXOs();
-        const feeRatePromise = this.getFeeRate();
-        this.walletMempool = await mempoolPromise;
-        const assetUTXOs = await assetUTXOsPromise;
-        const baseCurrencyUTXOs = (await baseCurencyUTXOsPromise);
-        this.feerate = await feeRatePromise;
-        const mempoolUTXOs = await this.wallet.getUTXOsInMempool(this.walletMempool);
-        const _allUTXOsTemp = assetUTXOs
-            .concat(baseCurrencyUTXOs)
-            .concat(mempoolUTXOs);
-        //add forced UTXO to the beginning of the array
-        //method getUTXOs will remove all duplicates
-        if (this.forcedUTXOs) {
-            for (let f of this.forcedUTXOs) {
-                const utxo = f.utxo;
-                _allUTXOsTemp.unshift(utxo);
-            }
-        }
-        //Collect UTXOs that are not currently being spent in the mempool
-        const allUTXOs = _allUTXOsTemp.filter((utxo) => {
-            //Always include forced UTXOs
-            if (utxo.forced === true) {
-                return true;
-            }
-            const objInMempool = this.walletMempool.find((mempoolEntry) => {
-                if (mempoolEntry.prevtxid) {
-                    const result = mempoolEntry.prevtxid === utxo.txid &&
-                        mempoolEntry.prevout === utxo.outputIndex;
-                    return result;
-                }
-                return false;
-            });
-            return !objInMempool;
-        });
-        //Sort utxos lowest first
-        //const sorted = allUTXOs.sort(sortBySatoshis);
-        //Remove duplicates, like if we have added an UTXO as forced, but it is already
-        //in the wallet as a normal UTXO
-        this._allUTXOs = removeDuplicates(allUTXOs);
-    }
-    getAmount() {
-        let total = 0;
-        const values = Object.values(this.outputs);
-        values.map((value) => (total += value));
-        return total;
-    }
-    getUTXOs() {
-        //NOTE, if we have FORCED utxos, they have to be included no matter what
-        let result = [];
-        if (this.isAssetTransfer() === true) {
-            const assetAmount = this.getAmount();
-            const baseCurrencyAmount = this.getBaseCurrencyAmount();
-            const baseCurrencyUTXOs = getEnoughUTXOs(this._allUTXOs, this.wallet.baseCurrency, baseCurrencyAmount);
-            const assetUTXOs = getEnoughUTXOs(this._allUTXOs, this.assetName, assetAmount);
-            result = assetUTXOs.concat(baseCurrencyUTXOs);
-        }
-        else {
-            result = getEnoughUTXOs(this._allUTXOs, this.wallet.baseCurrency, this.getBaseCurrencyAmount());
-        }
-        return result;
-    }
-    /*
-    Check the blockchain, network.
-    Is this transaction still valid? Will it be accepted?
-    */
-    validate() { }
-    predictUTXOs() {
-        let utxos = [];
-        if (this.isAssetTransfer()) {
-            utxos = getEnoughUTXOs(this._allUTXOs, this.assetName, this.getAmount());
-        }
-        else {
-            utxos = getEnoughUTXOs(this._allUTXOs, this.wallet.baseCurrency, this.getAmount());
-        }
-        return utxos;
-    }
-    getBaseCurrencyAmount() {
-        const fee = this.getFee();
-        if (this.isAssetTransfer() === true) {
-            return fee;
-        }
-        else
-            return this.getAmount() + fee;
-    }
-    getBaseCurrencyChange() {
-        const enoughUTXOs = getEnoughUTXOs(this._allUTXOs, this.wallet.baseCurrency, this.getBaseCurrencyAmount());
-        let total = 0;
-        for (let utxo of enoughUTXOs) {
-            if (utxo.assetName !== this.wallet.baseCurrency) {
-                continue;
-            }
-            total = total + utxo.satoshis / 1e8;
-        }
-        const result = total - this.getBaseCurrencyAmount();
-        return shortenNumber(result);
-    }
-    getAssetChange() {
-        const enoughUTXOs = getEnoughUTXOs(this._allUTXOs, this.assetName, this.getAmount());
-        let total = 0;
-        for (let utxo of enoughUTXOs) {
-            if (utxo.assetName !== this.assetName) {
-                continue;
-            }
-            total = total + utxo.satoshis / 1e8;
-        }
-        return total - this.getAmount();
-    }
-    isAssetTransfer() {
-        return this.assetName !== this.wallet.baseCurrency;
-    }
-    async getOutputs() {
-        //we take the declared outputs and add change outputs
-        const totalOutputs = {};
-        const changeAddressBaseCurrency = this.forcedChangeAddressBaseCurrency ||
-            (await this.wallet.getChangeAddress());
-        if (this.isAssetTransfer() === true) {
-            //Validate: change address cant be toAddress
-            const toAddresses = Object.keys(this.outputs);
-            if (toAddresses.includes(changeAddressBaseCurrency) === true) {
-                throw new ValidationError("Change address cannot be the same as to address");
-            }
-            totalOutputs[changeAddressBaseCurrency] = this.getBaseCurrencyChange();
-            const changeAddressAsset = await this._getChangeAddressAssets();
-            //Validate change address can never be the same as toAddress
-            if (toAddresses.includes(changeAddressAsset) === true) {
-                throw new ValidationError("Change address cannot be the same as to address");
-            }
-            if (this.getAssetChange() > 0) {
-                totalOutputs[changeAddressAsset] = {
-                    transfer: {
-                        [this.assetName]: Number(this.getAssetChange().toFixed(8)),
-                    },
-                };
-            }
-            for (let addy of Object.keys(this.outputs)) {
-                const amount = this.outputs[addy];
-                totalOutputs[addy] = {
-                    transfer: {
-                        [this.assetName]: amount,
-                    },
-                };
-            }
-        }
-        else {
-            for (let addy of Object.keys(this.outputs)) {
-                const amount = this.outputs[addy];
-                totalOutputs[addy] = amount;
-            }
-            totalOutputs[changeAddressBaseCurrency] = this.getBaseCurrencyChange();
-        }
-        return totalOutputs;
-    }
-    async _getChangeAddressAssets() {
-        if (this.forcedChangeAddressAssets) {
-            return this.forcedChangeAddressAssets;
-        }
-        return this.wallet.getAssetChangeAddress();
-    }
-    getInputs() {
-        return this.getUTXOs().map((obj) => {
-            return { address: obj.address, txid: obj.txid, vout: obj.outputIndex };
-        });
-    }
-    getPrivateKeys() {
-        const addressObjects = this.wallet.getAddressObjects();
-        const privateKeys = {};
-        for (let u of this.getUTXOs()) {
-            //Find the address object (we want the WIF) for the address related to the UTXO
-            const addressObject = addressObjects.find((obj) => obj.address === u.address);
-            if (addressObject) {
-                privateKeys[u.address] = this.wallet.getPrivateKeyByAddress(u.address);
-            }
-        }
-        //Add privatekeys from forcedUTXOs
-        this.forcedUTXOs.map((f) => (privateKeys[f.address] = f.privateKey));
-        return privateKeys;
-    }
-    getFee() {
-        const kb = this.getSizeInKB();
-        const result = kb * this.feerate;
-        return result;
-    }
-    async getFeeRate() {
-        const defaultFee = 0.05;
-        try {
-            const confirmationTarget = 20;
-            const response = (await this.wallet.rpc("estimatesmartfee", [
-                confirmationTarget,
-            ]));
-            //Errors can occur on testnet, not enough info to calculate fee
-            if (!response.errors) {
-                return normaliseFee(this.wallet.network, response.feerate);
-            }
-            else {
-                return defaultFee;
-            }
-        }
-        catch (e) {
-            //Might occure errors on testnet when calculating fees
-            return defaultFee;
-        }
-    }
+function utxoKey(utxo) {
+    return `${utxo.txid}:${utxo.outputIndex}`;
 }
-//Return the number with max 8 decimals
-function shortenNumber(number) {
-    return parseFloat(number.toFixed(8));
+function buildUTXOMap(utxos) {
+    return new Map(utxos.map((u) => [utxoKey(u), u]));
 }
-function getEnoughUTXOs(utxos, asset, amount) {
+function selectUTXOs(utxos, assetName, amount) {
     const result = [];
     let sum = 0;
-    if (!utxos) {
-        throw Error("getEnoughUTXOs cannot be called without utxos");
-    }
-    //First off, add mandatory/forced UTXO, no matter what
-    for (let u of utxos) {
-        if (u.forced === true) {
-            if (u.assetName === asset) {
-                const value = u.satoshis / 1e8;
-                result.push(u);
-                sum = sum + value;
-            }
+    // Forced UTXOs always go in first
+    for (const u of utxos) {
+        if (u.forced === true && u.assetName === assetName) {
+            result.push(u);
+            sum += u.satoshis / SATS_PER_XNA;
         }
     }
-    //Process NON FORCED utxos
-    for (let u of utxos) {
-        if (u.forced) {
+    for (const u of utxos) {
+        if (u.forced === true)
             continue;
-        }
-        if (sum > amount) {
+        if (u.assetName !== assetName)
+            continue;
+        if (u.satoshis === 0)
+            continue;
+        if (sum > amount)
             break;
-        }
-        if (u.assetName !== asset) {
-            continue;
-        }
-        //Ignore UTXOs with zero satoshis, seems to occure when assets are minted
-        if (u.satoshis === 0) {
-            continue;
-        }
-        const value = u.satoshis / 1e8;
         result.push(u);
-        sum = sum + value;
+        sum += u.satoshis / SATS_PER_XNA;
     }
     if (sum < amount) {
-        const error = new InsufficientFundsError("You do not have " + amount + " " + asset + " you only have " + sum);
-        throw error;
+        throw new InsufficientFundsError(`You do not have ${amount} ${assetName} you only have ${sum}`);
     }
     return result;
 }
-function normaliseFee(network, fee) {
-    return fee;
+function estimateSizeKB(inputs, outputAddresses) {
+    const hasPQInputs = inputs.some(isPQUTXO);
+    const baseSize = hasPQInputs ? 12 : 10;
+    const inputBytes = inputs.reduce((t, u) => t + (isPQUTXO(u) ? PQ_INPUT_VBYTES : LEGACY_INPUT_VBYTES), 0);
+    const outputBytes = outputAddresses.reduce((t, a) => t + (isPQAddress(a) ? PQ_OUTPUT_BYTES : LEGACY_OUTPUT_BYTES), 0);
+    return (baseSize + inputBytes + outputBytes) / 1024;
+}
+async function getFeeRate(wallet) {
+    try {
+        const confirmationTarget = 20;
+        const response = (await wallet.rpc("estimatesmartfee", [
+            confirmationTarget,
+        ]));
+        if (response && !response.errors && typeof response.feerate === "number") {
+            return response.feerate;
+        }
+    }
+    catch {
+        // Falls through to default
+    }
+    return DEFAULT_FEE_RATE_XNA_PER_KB;
+}
+function utxosToTxInputs(utxos) {
+    return utxos.map((u) => ({ txid: u.txid, vout: u.outputIndex }));
+}
+function buildPrivateKeyMap(wallet, utxos, forcedExtras = []) {
+    const keys = {};
+    for (const u of utxos) {
+        const material = wallet.getPrivateKeyByAddress(u.address);
+        if (material)
+            keys[u.address] = material;
+    }
+    for (const f of forcedExtras) {
+        keys[f.address] = f.privateKey;
+    }
+    return keys;
+}
+function signRawTransaction(network, rawTxHex, utxos, privateKeys) {
+    return Signer.sign(network, rawTxHex, utxos, privateKeys);
+}
+async function broadcastSignedTransaction(wallet, signedHex) {
+    return (await wallet.rpc("sendrawtransaction", [signedHex]));
+}
+/**
+ * Load all spendable UTXOs (XNA + assets, including unspent mempool entries)
+ * plus the current fee rate. Mirrors the discovery the old SendManyTransaction
+ * did during loadData(), centralised so any builder can reuse it.
+ */
+async function loadSpendableFunds(wallet, forcedUTXOs = []) {
+    const [mempool, assetUTXOs, baseUTXOs, feeRate] = await Promise.all([
+        wallet.getMempool(),
+        wallet.getAssetUTXOs(),
+        wallet.getUTXOs(),
+        getFeeRate(wallet),
+    ]);
+    const mempoolUTXOs = await wallet.getUTXOsInMempool(mempool);
+    const all = [...forcedUTXOs, ...assetUTXOs, ...baseUTXOs, ...mempoolUTXOs];
+    // Drop UTXOs already being spent in the mempool (unless forced)
+    const filtered = all.filter((u) => {
+        if (u.forced === true)
+            return true;
+        return !mempool.find((m) => m.prevtxid === u.txid && m.prevout === u.outputIndex);
+    });
+    // Deduplicate by txid:vout (forced UTXOs were unshifted first so they win)
+    const seen = new Set();
+    const unique = [];
+    for (const u of filtered) {
+        const k = utxoKey(u);
+        if (seen.has(k))
+            continue;
+        seen.add(k);
+        unique.push(u);
+    }
+    return { utxos: unique, feeRate };
+}
+function shortenNumber(value) {
+    return parseFloat(value.toFixed(8));
 }
 
-!!Signer.sign; //"Idiocracy" but prevents bundle tools such as PARCEL to strip this dependency out on build.
+const FIXED_FEE_XNA = 0.02; // pre-broadcast estimate; user pays this from XNA balance
 /**
- *
- * @param WIF the private key in wallet import format that you want to sweep/empty
- * @param wallet your wallet
- * @returns a string of a signed transaction, you have to broad cast it
+ * Sweep all UTXOs (XNA + assets) held by `WIF` into the wallet's first
+ * addresses. Sweeping PQ private keys is not supported.
  */
 async function sweep(WIF, wallet, onlineMode) {
     if (wallet.network === "xna-pq" || wallet.network === "xna-pq-test") {
@@ -385,129 +161,397 @@ async function sweep(WIF, wallet, onlineMode) {
     const privateKey = NeuraiKey.getAddressByWIF(wallet.network, WIF);
     const result = {};
     const rpc = wallet.rpc;
-    const obj = {
-        addresses: [privateKey.address],
-    };
-    const baseCurrencyUTXOs = (await rpc("getaddressutxos", [obj]));
-    const obj2 = {
-        addresses: [privateKey.address],
-        assetName: "*",
-    };
-    const assetUTXOs = (await rpc("getaddressutxos", [obj2]));
+    const baseCurrencyUTXOs = (await rpc("getaddressutxos", [
+        { addresses: [privateKey.address] },
+    ]));
+    const assetUTXOs = (await rpc("getaddressutxos", [
+        { addresses: [privateKey.address], assetName: "*" },
+    ]));
     const UTXOs = assetUTXOs.concat(baseCurrencyUTXOs);
     result.UTXOs = UTXOs;
-    //Create a raw transaction with ALL UTXOs
     if (UTXOs.length === 0) {
-        result.errorDescription = "Address " + privateKey.address + " has no funds";
+        result.errorDescription = `Address ${privateKey.address} has no funds`;
         return result;
     }
-    const balanceObject = {};
-    UTXOs.map((utxo) => {
-        if (!balanceObject[utxo.assetName]) {
-            balanceObject[utxo.assetName] = 0;
-        }
-        balanceObject[utxo.assetName] += utxo.satoshis;
-    });
-    const keys = Object.keys(balanceObject);
-    //Start simple, get the first addresses from the wallet
+    // Total per asset (in satoshis)
+    const balanceByAsset = {};
+    for (const u of UTXOs) {
+        balanceByAsset[u.assetName] = (balanceByAsset[u.assetName] ?? 0) + u.satoshis;
+    }
+    // Build outputs: each asset goes to a different wallet address
     const outputs = {};
-    const fixedFee = 0.02; // should do for now
-    keys.map((assetName, index) => {
-        const address = wallet.getAddresses()[index];
-        const amount = balanceObject[assetName] / 1e8;
+    const transfers = [];
+    const payments = [];
+    Object.keys(balanceByAsset).forEach((assetName, index) => {
+        const destination = wallet.getAddresses()[index];
+        const amount = balanceByAsset[assetName] / 1e8;
         if (assetName === wallet.baseCurrency) {
-            outputs[address] = shortenNumber(amount - fixedFee);
+            const sendAmount = shortenNumber(amount - FIXED_FEE_XNA);
+            outputs[destination] = sendAmount;
+            payments.push({
+                address: destination,
+                valueSats: xnaToSats(sendAmount),
+            });
         }
         else {
-            outputs[address] = {
-                transfer: {
-                    [assetName]: amount,
-                },
-            };
+            outputs[destination] = { transfer: { [assetName]: amount } };
+            transfers.push({
+                address: destination,
+                assetName,
+                amountRaw: BigInt(balanceByAsset[assetName]),
+            });
         }
     });
     result.outputs = outputs;
-    //Convert from UTXO format to INPUT fomat
-    const inputs = UTXOs.map((utxo, index) => {
-        /*   {
-             "txid":"id",                      (string, required) The transaction id
-             "vout":n,                         (number, required) The output number
-             "sequence":n                      (number, optional) The sequence number
-           }
-           */
-        const input = {
-            txid: utxo.txid,
-            vout: utxo.outputIndex,
-        };
-        return input;
-    });
-    //Create raw transaction
-    const rawHex = (await rpc("createrawtransaction", [inputs, outputs]));
-    const privateKeys = {
-        [privateKey.address]: WIF,
-    };
-    const signedHex = Signer.sign(wallet.network, rawHex, UTXOs, privateKeys);
+    const inputs = utxosToTxInputs(UTXOs);
+    const built = transfers.length > 0
+        ? neuraiCreateTransaction.createStandardAssetTransferTransaction({ inputs, payments, transfers })
+        : neuraiCreateTransaction.createPaymentTransaction({ inputs, payments });
+    const signedHex = signRawTransaction(wallet.network, built.rawTx, UTXOs, { [privateKey.address]: WIF });
     result.rawTransaction = signedHex;
     if (onlineMode === true) {
-        result.transactionId = (await rpc("sendrawtransaction", [signedHex]));
+        result.transactionId = await broadcastSignedTransaction(wallet, signedHex);
     }
     return result;
 }
 
-class Transaction {
-    sendManyTransaction;
-    constructor(options) {
-        //The diff between ITransactionOptions and ISendManyTransactionOptions 
-        //is that SendMany has a multi value outputs attribute instead of toAddress
-        const _options = {
-            ...options,
-            outputs: {
-                [options.toAddress]: options.amount,
-            },
+function isAssetTransfer(wallet, assetName) {
+    return assetName !== wallet.baseCurrency;
+}
+function totalAmount(outputs) {
+    return Object.values(outputs).reduce((t, v) => t + v, 0);
+}
+function sumByAsset(utxos, assetName) {
+    let sum = 0;
+    for (const u of utxos) {
+        if (u.assetName !== assetName)
+            continue;
+        sum += u.satoshis / 1e8;
+    }
+    return sum;
+}
+function tagForcedUTXOs(forced) {
+    if (!forced || forced.length === 0)
+        return [];
+    return forced.map((f) => ({ ...f.utxo, forced: true }));
+}
+async function buildSendManyInternal(wallet, options) {
+    const assetName = options.assetName || wallet.baseCurrency;
+    const outputs = options.outputs;
+    if (!outputs || Object.keys(outputs).length === 0) {
+        throw new ValidationError("outputs is mandatory");
+    }
+    const forcedUTXOs = tagForcedUTXOs(options.forcedUTXOs);
+    const { utxos: allUTXOs, feeRate } = await loadSpendableFunds(wallet, forcedUTXOs);
+    const amount = totalAmount(outputs);
+    const transferring = isAssetTransfer(wallet, assetName);
+    const changeAddressBaseCurrency = options.forcedChangeAddressBaseCurrency ||
+        (await wallet.getChangeAddress());
+    const toAddresses = Object.keys(outputs);
+    if (toAddresses.includes(changeAddressBaseCurrency)) {
+        throw new ValidationError("Change address cannot be the same as to address");
+    }
+    let assetChange = 0;
+    let assetUTXOs = [];
+    let baseCurrencyUTXOs = [];
+    let baseCurrencyAmount;
+    let changeAddressAsset = "";
+    if (transferring) {
+        assetUTXOs = selectUTXOs(allUTXOs, assetName, amount);
+        assetChange = sumByAsset(assetUTXOs, assetName) - amount;
+        // For asset transfers we still need XNA UTXOs to pay the fee
+        const previewSelection = selectUTXOs(allUTXOs, wallet.baseCurrency, 0.001);
+        const previewSize = estimateSizeKB([...assetUTXOs, ...previewSelection], [...toAddresses, changeAddressBaseCurrency]);
+        baseCurrencyAmount = previewSize * feeRate;
+        baseCurrencyUTXOs = selectUTXOs(allUTXOs, wallet.baseCurrency, baseCurrencyAmount);
+        changeAddressAsset =
+            options.forcedChangeAddressAssets ||
+                (await wallet.getAssetChangeAddress());
+        if (toAddresses.includes(changeAddressAsset)) {
+            throw new ValidationError("Change address cannot be the same as to address");
+        }
+    }
+    else {
+        baseCurrencyAmount = amount;
+        baseCurrencyUTXOs = selectUTXOs(allUTXOs, wallet.baseCurrency, baseCurrencyAmount);
+        // refine fee based on chosen inputs
+        const sizeKb = estimateSizeKB(baseCurrencyUTXOs, [
+            ...toAddresses,
+            changeAddressBaseCurrency,
+        ]);
+        const fee = sizeKb * feeRate;
+        baseCurrencyAmount = amount + fee;
+        baseCurrencyUTXOs = selectUTXOs(allUTXOs, wallet.baseCurrency, baseCurrencyAmount);
+    }
+    const selectedUTXOs = transferring
+        ? [...assetUTXOs, ...baseCurrencyUTXOs]
+        : baseCurrencyUTXOs;
+    const sizeKb = estimateSizeKB(selectedUTXOs, transferring
+        ? [...toAddresses, changeAddressBaseCurrency, changeAddressAsset]
+        : [...toAddresses, changeAddressBaseCurrency]);
+    const fee = sizeKb * feeRate;
+    const baseCurrencySpent = transferring ? fee : amount + fee;
+    const baseCurrencyAvailable = sumByAsset(baseCurrencyUTXOs, wallet.baseCurrency);
+    const baseCurrencyChange = shortenNumber(baseCurrencyAvailable - baseCurrencySpent);
+    // Compose the user-facing outputs object (mirrors the old SendManyTransaction shape)
+    const totalOutputs = {};
+    if (transferring) {
+        totalOutputs[changeAddressBaseCurrency] = baseCurrencyChange;
+        if (assetChange > 0) {
+            totalOutputs[changeAddressAsset] = {
+                transfer: { [assetName]: shortenNumber(assetChange) },
+            };
+        }
+        for (const addy of toAddresses) {
+            totalOutputs[addy] = { transfer: { [assetName]: outputs[addy] } };
+        }
+    }
+    else {
+        for (const addy of toAddresses) {
+            totalOutputs[addy] = outputs[addy];
+        }
+        totalOutputs[changeAddressBaseCurrency] = baseCurrencyChange;
+    }
+    // Build the actual rawTx via neurai-create-transaction
+    const inputs = utxosToTxInputs(selectedUTXOs);
+    const network = wallet.network;
+    const rawTxHex = transferring
+        ? buildAssetTransferRawTx(network, inputs, {
+            toAddressAmounts: outputs,
+            assetName,
+            baseCurrencyChangeAddress: changeAddressBaseCurrency,
+            baseCurrencyChange,
+            assetChangeAddress: changeAddressAsset,
+            assetChange: shortenNumber(assetChange),
+        })
+        : buildPaymentRawTx(network, inputs, totalOutputs);
+    const forcedExtras = options.forcedUTXOs?.map((f) => ({
+        address: f.address,
+        privateKey: f.privateKey,
+    }));
+    const privateKeys = buildPrivateKeyMap(wallet, selectedUTXOs, forcedExtras);
+    const signedHex = signRawTransaction(network, rawTxHex, selectedUTXOs, privateKeys);
+    const walletMempool = await wallet.getMempool();
+    return {
+        rawTxHex,
+        signedHex,
+        inputs: selectedUTXOs,
+        outputs: totalOutputs,
+        fee,
+        baseCurrencyAmount: transferring ? fee : amount + fee,
+        baseCurrencyChange,
+        assetChange: transferring ? shortenNumber(assetChange) : 0,
+        walletMempool,
+    };
+}
+function buildPaymentRawTx(_network, inputs, payments) {
+    const txPayments = Object.entries(payments).map(([address, amountXna]) => ({
+        address,
+        valueSats: xnaToSats(amountXna),
+    }));
+    const built = neuraiCreateTransaction.createPaymentTransaction({ inputs, payments: txPayments });
+    return built.rawTx;
+}
+function buildAssetTransferRawTx(_network, inputs, spec) {
+    const transfers = [];
+    for (const [address, amount] of Object.entries(spec.toAddressAmounts)) {
+        transfers.push({ address, assetName: spec.assetName, amountRaw: xnaToSats(amount) });
+    }
+    if (spec.assetChange > 0) {
+        transfers.push({
+            address: spec.assetChangeAddress,
+            assetName: spec.assetName,
+            amountRaw: xnaToSats(spec.assetChange),
+        });
+    }
+    const payments = [];
+    if (spec.baseCurrencyChange > 0) {
+        payments.push({
+            address: spec.baseCurrencyChangeAddress,
+            valueSats: xnaToSats(spec.baseCurrencyChange),
+        });
+    }
+    const built = neuraiCreateTransaction.createStandardAssetTransferTransaction({
+        inputs,
+        payments,
+        transfers,
+    });
+    return built.rawTx;
+}
+function toSendResult(build, params) {
+    return {
+        transactionId: params.transactionId ?? null,
+        debug: {
+            amount: params.amount,
+            assetName: params.assetName,
+            fee: build.fee,
+            inputs: build.inputs.map((u) => ({
+                txid: u.txid,
+                vout: u.outputIndex,
+                address: u.address,
+            })),
+            outputs: build.outputs,
+            rawUnsignedTransaction: build.rawTxHex,
+            xnaAmount: build.baseCurrencyAmount,
+            xnaChangeAmount: build.baseCurrencyChange,
+            signedTransaction: build.signedHex,
+            UTXOs: build.inputs,
+            walletMempool: build.walletMempool,
+        },
+    };
+}
+async function createTransactionForOptions(wallet, options) {
+    if (!options.toAddress)
+        throw Error("toAddress is mandatory");
+    if (!options.amount)
+        throw Error("amount is mandatory");
+    const assetName = options.assetName || wallet.baseCurrency;
+    const build = await buildSendManyInternal(wallet, {
+        assetName,
+        outputs: { [options.toAddress]: options.amount },
+        forcedChangeAddressAssets: options.forcedChangeAddressAssets,
+        forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
+        forcedUTXOs: options.forcedUTXOs,
+    });
+    return toSendResult(build, { amount: options.amount, assetName });
+}
+async function createSendManyForOptions(wallet, options) {
+    const assetName = options.assetName || wallet.baseCurrency;
+    const build = await buildSendManyInternal(wallet, options);
+    const amount = totalAmount(options.outputs);
+    return toSendResult(build, { amount, assetName });
+}
+async function broadcastBuilt(wallet, result) {
+    if (!result.debug.signedTransaction) {
+        throw new Error("No signed transaction to broadcast");
+    }
+    const txid = await broadcastSignedTransaction(wallet, result.debug.signedTransaction);
+    result.transactionId = txid;
+    return result;
+}
+
+class WalletAssets {
+    queries;
+    wallet;
+    constructor(wallet) {
+        this.wallet = wallet;
+        const rpc = (method, params) => this.wallet.rpc(method, params ?? []);
+        this.queries = new NeuraiAssets.AssetQueries(rpc);
+    }
+    // --- Asset issuance ---
+    async issueRoot(params) {
+        return this._exec((assets, params2) => assets.createRootAsset(params2), params);
+    }
+    async issueSub(params) {
+        return this._exec((assets, p) => assets.createSubAsset(p), params);
+    }
+    async issueDepin(params) {
+        return this._exec((assets, p) => assets.createDepinAsset(p), params);
+    }
+    async issueUnique(params) {
+        return this._exec((assets, p) => assets.createUniqueAssets(p), params);
+    }
+    async issueQualifier(params) {
+        return this._exec((assets, p) => assets.createQualifier(p), params);
+    }
+    async issueRestricted(params) {
+        return this._exec((assets, p) => assets.createRestrictedAsset(p), params);
+    }
+    // --- Reissue ---
+    async reissue(params) {
+        return this._exec((assets, p) => assets.reissueAsset(p), params);
+    }
+    async reissueRestricted(params) {
+        return this._exec((assets, p) => assets.reissueRestrictedAsset(p), params);
+    }
+    // --- Tag / untag (qualifier) ---
+    async tagAddresses(params) {
+        return this._exec((assets, p) => assets.tagAddresses(p), params);
+    }
+    async untagAddresses(params) {
+        return this._exec((assets, p) => assets.untagAddresses(p), params);
+    }
+    // --- Freeze (restricted assets) ---
+    async freezeAddresses(params) {
+        return this._exec((assets, p) => assets.freezeAddresses(p), params);
+    }
+    async unfreezeAddresses(params) {
+        return this._exec((assets, p) => assets.unfreezeAddresses(p), params);
+    }
+    async freezeAssetGlobally(params) {
+        return this._exec((assets, p) => assets.freezeAssetGlobally(p), params);
+    }
+    async unfreezeAssetGlobally(params) {
+        return this._exec((assets, p) => assets.unfreezeAssetGlobally(p), params);
+    }
+    // --- Internals ---
+    async _exec(op, rawParams) {
+        const params = rawParams;
+        const broadcast = params.broadcast !== false;
+        const toAddress = params.toAddress || (await this.wallet.getReceiveAddress());
+        const changeAddress = params.changeAddress || (await this.wallet.getChangeAddress());
+        const rpc = (method, p) => this.wallet.rpc(method, p ?? []);
+        const assets = new NeuraiAssets(rpc, {
+            network: this.wallet.network,
+            addresses: this.wallet.getAddresses(),
+            changeAddress,
+            toAddress,
+        });
+        const opParams = { ...params };
+        delete opParams.broadcast;
+        delete opParams.toAddress;
+        delete opParams.changeAddress;
+        const result = await op(assets, {
+            ...opParams,
+            toAddress,
+            changeAddress,
+            walletAddresses: this.wallet.getAddresses(),
+            network: this.wallet.network,
+        });
+        const signedHex = await this._signResult(result);
+        let txid = null;
+        if (broadcast) {
+            txid = await broadcastSignedTransaction(this.wallet, signedHex);
+        }
+        return {
+            transactionId: txid,
+            rawTx: result.rawTx,
+            signedTransaction: signedHex,
+            fee: result.fee,
+            burnAmount: result.burnAmount,
+            changeAddress: result.changeAddress,
+            changeAmount: result.changeAmount,
+            inputs: (result.inputs ?? []).map((i) => ({
+                txid: i.txid,
+                vout: i.vout,
+                address: i.address,
+            })),
+            outputs: result.outputs ?? [],
+            assetData: result.assetData,
+            raw: result,
         };
-        this.sendManyTransaction = new SendManyTransaction(_options);
     }
-    getWalletMempool() {
-        return this.sendManyTransaction.getWalletMempool();
-    }
-    getSizeInKB() {
-        return this.sendManyTransaction.getSizeInKB();
-    }
-    async loadData() {
-        return this.sendManyTransaction.loadData();
-    }
-    getUTXOs() {
-        return this.sendManyTransaction.getUTXOs();
-    }
-    predictUTXOs() {
-        return this.sendManyTransaction.predictUTXOs();
-    }
-    getBaseCurrencyAmount() {
-        return this.sendManyTransaction.getBaseCurrencyAmount();
-    }
-    getBaseCurrencyChange() {
-        return this.sendManyTransaction.getBaseCurrencyChange();
-    }
-    getAssetChange() {
-        return this.sendManyTransaction.getAssetChange();
-    }
-    isAssetTransfer() {
-        return this.sendManyTransaction.isAssetTransfer();
-    }
-    async getOutputs() {
-        return this.sendManyTransaction.getOutputs();
-    }
-    getInputs() {
-        return this.sendManyTransaction.getInputs();
-    }
-    getPrivateKeys() {
-        return this.sendManyTransaction.getPrivateKeys();
-    }
-    getFee() {
-        return this.sendManyTransaction.getFee();
-    }
-    async getFeeRate() {
-        return this.sendManyTransaction.getFeeRate();
+    /**
+     * Recover the full IUTXO objects for the inputs the assets builder selected,
+     * then sign with the wallet's private keys.
+     */
+    async _signResult(result) {
+        const { utxos: spendable } = await loadSpendableFunds(this.wallet);
+        const map = buildUTXOMap(spendable);
+        const inputUTXOs = [];
+        for (const i of result.inputs ?? []) {
+            const key = utxoKey({ txid: i.txid, outputIndex: i.vout });
+            const found = map.get(key);
+            if (found) {
+                inputUTXOs.push(found);
+                continue;
+            }
+            // Fallback: synthesize a minimal UTXO from the BuildInput; sign-tx
+            // requires `script` so try to reconstruct it.
+            throw new Error(`Could not find UTXO ${key} in the wallet's spendable set; cannot sign asset op`);
+        }
+        const privateKeys = buildPrivateKeyMap(this.wallet, inputUTXOs);
+        return signRawTransaction(this.wallet.network, result.rawTx, inputUTXOs, privateKeys);
     }
 }
 
@@ -587,6 +631,17 @@ class Wallet {
     addressPosition = 0;
     baseCurrency = "XNA";
     offlineMode = false;
+    /**
+     * High-level asset operations (issue/reissue/freeze/tag) and queries,
+     * backed by `@neuraiproject/neurai-assets`. Initialised lazily on first
+     * access so the constructor stays cheap.
+     */
+    _assets = null;
+    get assets() {
+        if (!this._assets)
+            this._assets = new WalletAssets(this);
+        return this._assets;
+    }
     setBaseCurrency(currency) {
         this.baseCurrency = currency;
     }
@@ -630,7 +685,8 @@ class Wallet {
             throw Error("option.mnemonic is mandatory");
         }
         if (options.network === "xna-test" ||
-            options.network === "xna-legacy-test") {
+            options.network === "xna-legacy-test" ||
+            options.network === "xna-pq-test") {
             url = URL_NEURAI_TESTNET;
         }
         url = options.rpc_url || url;
@@ -886,158 +942,47 @@ class Wallet {
         return this.rpc("sendrawtransaction", [raw]);
     }
     async send(options) {
-        //ACTUAL SENDING TRANSACTION
-        //Important, do not swallow the exceptions/errors of createTransaction, let them fly
         const sendResult = await this.createTransaction(options);
-        const id = (await this.rpc("sendrawtransaction", [
-            sendResult.debug.signedTransaction,
-        ]));
-        sendResult.transactionId = id;
-        return sendResult;
+        return broadcastBuilt(this, sendResult);
     }
     async sendMany({ outputs, assetName }) {
-        const options = {
-            wallet: this,
+        const sendResult = await this.createSendManyTransaction({
             outputs,
             assetName,
-        };
-        const sendResult = await this.createSendManyTransaction(options);
-        //ACTUAL SENDING TRANSACTION
-        //Important, do not swallow the exceptions/errors of createSendManyTransaction, let them fly
-        try {
-            const id = (await this.rpc("sendrawtransaction", [
-                sendResult.debug.signedTransaction,
-            ]));
-            sendResult.transactionId = id;
-            return sendResult;
-        }
-        catch (e) {
-            throw new Error("Error while sending, perhaps you have pending transaction? Please try again.");
-        }
+            wallet: this,
+        });
+        return broadcastBuilt(this, sendResult);
     }
     /**
-     * Does all the heavy lifting regarding creating a SendManyTransaction
-     * but it does not broadcast the actual transaction.
-     * Perhaps the user wants to accept the transaction fee?
-     * @param options
-     * @returns An transaction that has not been broadcasted
+     * Build (but do not broadcast) a single-output transaction.
+     * Returns an `ISendResult` with `signedTransaction` ready to broadcast.
      */
     async createTransaction(options) {
-        const { amount, toAddress } = options;
-        let { assetName } = options;
-        if (!assetName) {
-            assetName = this.baseCurrency;
-        }
-        //Validation
-        if (!toAddress) {
-            throw Error("Wallet.send toAddress is mandatory");
-        }
-        if (!amount) {
-            throw Error("Wallet.send amount is mandatory");
-        }
-        const changeAddress = await this.getChangeAddress();
-        if (changeAddress === toAddress) {
-            throw new Error("Change address cannot be the same as toAddress");
-        }
-        const transaction = new Transaction({
-            assetName,
-            amount,
-            toAddress,
-            wallet: this,
-            /* optional */
-            forcedChangeAddressAssets: options.forcedChangeAddressAssets,
+        return createTransactionForOptions(this, {
+            amount: options.amount,
+            assetName: options.assetName ?? this.baseCurrency,
+            toAddress: options.toAddress,
             forcedUTXOs: options.forcedUTXOs,
             forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
+            ...(options.forcedChangeAddressAssets
+                ? { forcedChangeAddressAssets: options.forcedChangeAddressAssets }
+                : {}),
         });
-        await transaction.loadData();
-        const inputs = transaction.getInputs();
-        const outputs = await transaction.getOutputs();
-        const privateKeys = transaction.getPrivateKeys();
-        const raw = (await this.rpc("createrawtransaction", [inputs, outputs]));
-        const signed = Signer.sign(this.network, raw, transaction.getUTXOs(), privateKeys);
-        try {
-            //   const id = await this.rpc("sendrawtransaction", [signed]);
-            const sendResult = {
-                transactionId: null,
-                debug: {
-                    amount,
-                    assetName,
-                    fee: transaction.getFee(),
-                    inputs,
-                    outputs,
-                    privateKeys,
-                    rawUnsignedTransaction: raw,
-                    xnaChangeAmount: transaction.getBaseCurrencyChange(),
-                    xnaAmount: transaction.getBaseCurrencyAmount(),
-                    signedTransaction: signed,
-                    UTXOs: transaction.getUTXOs(),
-                    walletMempool: transaction.getWalletMempool(),
-                },
-            };
-            return sendResult;
-        }
-        catch (e) {
-            throw new Error("Error while sending, perhaps you have pending transaction? Please try again.");
-        }
     }
     /**
-     * Does all the heavy lifting regarding creating a transaction
-     * but it does not broadcast the actual transaction.
-     * Perhaps the user wants to accept the transaction fee?
-     * @param options
-     * @returns An transaction that has not been broadcasted
+     * Build (but do not broadcast) a multi-output transaction.
      */
     async createSendManyTransaction(options) {
-        let { assetName } = options;
-        if (!assetName) {
-            assetName = this.baseCurrency;
+        if (!options.outputs || Object.keys(options.outputs).length === 0) {
+            throw new ValidationError("outputs is mandatory, should be an object with address as keys and amounts (numbers) as values");
         }
-        //Validation
-        if (!options.outputs) {
-            throw Error("Wallet.createSendManyTransaction outputs is mandatory");
-        }
-        else if (Object.keys(options.outputs).length === 0) {
-            throw new ValidationError("outputs is mandatory, shoud be an object with address as keys and amounts (numbers) as values");
-        }
-        const changeAddress = await this.getChangeAddress();
-        const toAddresses = Object.keys(options.outputs);
-        if (toAddresses.includes(changeAddress)) {
-            throw new Error("You cannot send to your current change address");
-        }
-        const transaction = new SendManyTransaction({
-            assetName,
+        return createSendManyForOptions(this, {
+            assetName: options.assetName ?? this.baseCurrency,
             outputs: options.outputs,
-            wallet: this,
+            forcedUTXOs: options.forcedUTXOs,
+            forcedChangeAddressAssets: options.forcedChangeAddressAssets,
+            forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
         });
-        await transaction.loadData();
-        const inputs = transaction.getInputs();
-        const outputs = await transaction.getOutputs();
-        const privateKeys = transaction.getPrivateKeys();
-        const raw = (await this.rpc("createrawtransaction", [inputs, outputs]));
-        const signed = Signer.sign(this.network, raw, transaction.getUTXOs(), privateKeys);
-        try {
-            const sendResult = {
-                transactionId: null,
-                debug: {
-                    amount: transaction.getAmount(),
-                    assetName,
-                    fee: transaction.getFee(),
-                    inputs,
-                    outputs,
-                    privateKeys,
-                    rawUnsignedTransaction: raw,
-                    xnaChangeAmount: transaction.getBaseCurrencyChange(),
-                    xnaAmount: transaction.getBaseCurrencyAmount(),
-                    signedTransaction: signed,
-                    UTXOs: transaction.getUTXOs(),
-                    walletMempool: transaction.getWalletMempool(),
-                },
-            };
-            return sendResult;
-        }
-        catch (e) {
-            throw new Error("Error while sending, perhaps you have pending transaction? Please try again.");
-        }
     }
     /**
      * This method checks if an UTXO is being spent in the mempool.
@@ -1057,6 +1002,51 @@ class Wallet {
     async getBalance() {
         const a = this.getAddresses();
         return getBalance(this, a);
+    }
+    // --- Asset operation shortcuts ---
+    // Each delegates to wallet.assets so callers can write either:
+    //   wallet.issueRoot({...})           or   wallet.assets.issueRoot({...})
+    issueRoot(params) {
+        return this.assets.issueRoot(params);
+    }
+    issueSub(params) {
+        return this.assets.issueSub(params);
+    }
+    issueDepin(params) {
+        return this.assets.issueDepin(params);
+    }
+    issueUnique(params) {
+        return this.assets.issueUnique(params);
+    }
+    issueQualifier(params) {
+        return this.assets.issueQualifier(params);
+    }
+    issueRestricted(params) {
+        return this.assets.issueRestricted(params);
+    }
+    reissue(params) {
+        return this.assets.reissue(params);
+    }
+    reissueRestricted(params) {
+        return this.assets.reissueRestricted(params);
+    }
+    tagAddresses(params) {
+        return this.assets.tagAddresses(params);
+    }
+    untagAddresses(params) {
+        return this.assets.untagAddresses(params);
+    }
+    freezeAddresses(params) {
+        return this.assets.freezeAddresses(params);
+    }
+    unfreezeAddresses(params) {
+        return this.assets.unfreezeAddresses(params);
+    }
+    freezeAssetGlobally(params) {
+        return this.assets.freezeAssetGlobally(params);
+    }
+    unfreezeAssetGlobally(params) {
+        return this.assets.unfreezeAssetGlobally(params);
     }
     async convertMempoolEntryToUTXO(mempoolEntry) {
         //Mempool items might not have the script attbribute, we need it
@@ -1119,8 +1109,6 @@ async function createInstance(options) {
     return wallet;
 }
 
-exports.SendManyTransaction = SendManyTransaction;
-exports.Transaction = Transaction;
 exports.Wallet = Wallet;
 exports.createInstance = createInstance;
 exports.default = neuraiWallet;

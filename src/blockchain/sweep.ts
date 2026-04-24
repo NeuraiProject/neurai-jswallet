@@ -1,110 +1,104 @@
 import NeuraiKey from "@neuraiproject/neurai-key";
-import Signer from "@neuraiproject/neurai-sign-transaction";
-
-!!Signer.sign; //"Idiocracy" but prevents bundle tools such as PARCEL to strip this dependency out on build.
+import {
+  createPaymentTransaction,
+  createStandardAssetTransferTransaction,
+  type TransferOutputParams,
+  type TxPaymentOutput,
+} from "@neuraiproject/neurai-create-transaction";
 
 import { Wallet } from "../neuraiWallet";
-import { IInput, IUTXO, SweepResult } from "../Types";
-import { shortenNumber } from "./SendManyTransaction";
+import { ChainType, IUTXO, SweepResult } from "../Types";
+import {
+  broadcastSignedTransaction,
+  shortenNumber,
+  signRawTransaction,
+  utxosToTxInputs,
+  xnaToSats,
+} from "./txEngine";
 
-//sight rate burger maid melody slogan attitude gas account sick awful hammer
-//OH easter egg ;)
-const WIF = "Kz5U4Bmhrng4o2ZgwBi5PjtorCeq2dyM7axGQfdxsBSwCKi5ZfTw";
+const FIXED_FEE_XNA = 0.02; // pre-broadcast estimate; user pays this from XNA balance
 
 /**
- *
- * @param WIF the private key in wallet import format that you want to sweep/empty
- * @param wallet your wallet
- * @returns a string of a signed transaction, you have to broad cast it
+ * Sweep all UTXOs (XNA + assets) held by `WIF` into the wallet's first
+ * addresses. Sweeping PQ private keys is not supported.
  */
 export async function sweep(
   WIF: string,
   wallet: Wallet,
-  onlineMode: boolean
+  onlineMode: boolean,
 ): Promise<SweepResult> {
   if (wallet.network === "xna-pq" || wallet.network === "xna-pq-test") {
     throw new Error("Sweeping WIF private keys is not supported on PQ wallets");
   }
 
   const privateKey = NeuraiKey.getAddressByWIF(wallet.network, WIF);
-
   const result: SweepResult = {};
   const rpc = wallet.rpc;
-  const obj = {
-    addresses: [privateKey.address],
-  };
-  const baseCurrencyUTXOs = (await rpc("getaddressutxos", [obj])) as IUTXO[];
-  const obj2 = {
-    addresses: [privateKey.address],
-    assetName: "*",
-  };
 
-  const assetUTXOs = (await rpc("getaddressutxos", [obj2])) as IUTXO[];
+  const baseCurrencyUTXOs = (await rpc("getaddressutxos", [
+    { addresses: [privateKey.address] },
+  ])) as IUTXO[];
+  const assetUTXOs = (await rpc("getaddressutxos", [
+    { addresses: [privateKey.address], assetName: "*" },
+  ])) as IUTXO[];
   const UTXOs = assetUTXOs.concat(baseCurrencyUTXOs);
   result.UTXOs = UTXOs;
-  //Create a raw transaction with ALL UTXOs
 
   if (UTXOs.length === 0) {
-    result.errorDescription = "Address " + privateKey.address + " has no funds";
+    result.errorDescription = `Address ${privateKey.address} has no funds`;
     return result;
   }
-  const balanceObject = {};
 
-  UTXOs.map((utxo) => {
-    if (!balanceObject[utxo.assetName]) {
-      balanceObject[utxo.assetName] = 0;
-    }
-    balanceObject[utxo.assetName] += utxo.satoshis;
-  });
+  // Total per asset (in satoshis)
+  const balanceByAsset: Record<string, number> = {};
+  for (const u of UTXOs) {
+    balanceByAsset[u.assetName] = (balanceByAsset[u.assetName] ?? 0) + u.satoshis;
+  }
 
-  const keys = Object.keys(balanceObject);
+  // Build outputs: each asset goes to a different wallet address
+  const outputs: Record<string, number | { transfer: Record<string, number> }> =
+    {};
+  const transfers: TransferOutputParams[] = [];
+  const payments: TxPaymentOutput[] = [];
 
-  //Start simple, get the first addresses from the wallet
-
-  const outputs = {};
-
-  const fixedFee = 0.02; // should do for now
-  keys.map((assetName, index) => {
-    const address = wallet.getAddresses()[index];
-    const amount = balanceObject[assetName] / 1e8;
+  Object.keys(balanceByAsset).forEach((assetName, index) => {
+    const destination = wallet.getAddresses()[index];
+    const amount = balanceByAsset[assetName] / 1e8;
 
     if (assetName === wallet.baseCurrency) {
-      outputs[address] = shortenNumber(amount - fixedFee);
+      const sendAmount = shortenNumber(amount - FIXED_FEE_XNA);
+      outputs[destination] = sendAmount;
+      payments.push({
+        address: destination,
+        valueSats: xnaToSats(sendAmount),
+      });
     } else {
-      outputs[address] = {
-        transfer: {
-          [assetName]: amount,
-        },
-      };
+      outputs[destination] = { transfer: { [assetName]: amount } };
+      transfers.push({
+        address: destination,
+        assetName,
+        amountRaw: BigInt(balanceByAsset[assetName]),
+      });
     }
   });
   result.outputs = outputs;
 
-  //Convert from UTXO format to INPUT fomat
-  const inputs: Array<IInput> = UTXOs.map((utxo, index) => {
-    /*   {
-         "txid":"id",                      (string, required) The transaction id
-         "vout":n,                         (number, required) The output number
-         "sequence":n                      (number, optional) The sequence number
-       } 
-       */
+  const inputs = utxosToTxInputs(UTXOs);
+  const built =
+    transfers.length > 0
+      ? createStandardAssetTransferTransaction({ inputs, payments, transfers })
+      : createPaymentTransaction({ inputs, payments });
 
-    const input: IInput = {
-      txid: utxo.txid,
-      vout: utxo.outputIndex,
-    };
-    return input;
-  });
-  //Create raw transaction
-  const rawHex = (await rpc("createrawtransaction", [inputs, outputs])) as string;
-
-  const privateKeys = {
-    [privateKey.address]: WIF,
-  };
-  const signedHex = Signer.sign(wallet.network, rawHex, UTXOs, privateKeys);
+  const signedHex = signRawTransaction(
+    wallet.network as ChainType,
+    built.rawTx,
+    UTXOs,
+    { [privateKey.address]: WIF },
+  );
   result.rawTransaction = signedHex;
+
   if (onlineMode === true) {
-    result.transactionId = (await rpc("sendrawtransaction", [signedHex])) as string;
+    result.transactionId = await broadcastSignedTransaction(wallet, signedHex);
   }
 
   return result;
