@@ -13,14 +13,16 @@ By default it talks to the Neurai blockchain through public RPC services at
 
 `neurai-jswallet` is a thin wallet shell that wires together the Neurai SDK
 stack. It owns key management, address scanning, UTXO discovery and signing,
-and delegates transaction construction and asset operations to the dedicated
-libraries:
+delegates transaction construction and asset operations to dedicated
+libraries, and re-exports the low-level script primitives so callers don't
+need extra installs:
 
 | Concern | Library |
 |---|---|
 | Mnemonic / HD-key derivation (legacy + PQ) | [`@neuraiproject/neurai-key`](https://www.npmjs.com/package/@neuraiproject/neurai-key) |
 | Raw transaction builders (payments, transfers, issue, reissue, freeze, tag) | [`@neuraiproject/neurai-create-transaction`](https://www.npmjs.com/package/@neuraiproject/neurai-create-transaction) |
 | Asset orchestration & queries | [`@neuraiproject/neurai-assets`](https://www.npmjs.com/package/@neuraiproject/neurai-assets) |
+| Script primitives (covenants, multisig, AuthScript, OP_RETURN, P2SH/P2WSH...) | [`@neuraiproject/neurai-scripts`](https://www.npmjs.com/package/@neuraiproject/neurai-scripts) |
 | Transaction signing (legacy ECDSA + ML-DSA-44 PQ) | [`@neuraiproject/neurai-sign-transaction`](https://www.npmjs.com/package/@neuraiproject/neurai-sign-transaction) |
 | RPC client | [`@neuraiproject/neurai-rpc`](https://www.npmjs.com/package/@neuraiproject/neurai-rpc) |
 
@@ -319,6 +321,36 @@ await wallet.assets.queries.getVerifierString("$STOCK");
 await wallet.assets.queries.listDepinHolders("DEVICE001");
 await wallet.assets.queries.checkDepinValidity("DEVICE001", addr);
 ```
+
+## Low-level script primitives
+
+`@neuraiproject/neurai-scripts` is re-exported under the `scripts` namespace so
+you don't need a second `npm install` to assemble custom scripts (covenants,
+multisig, OP_RETURN, AuthScript, P2WSH/P2SH...).
+
+```js
+import { scripts } from "@neuraiproject/neurai-jswallet";
+
+// Partial-fill covenants (legacy + PQ)
+const orderHex = scripts.buildPartialFillScriptHex({ ... });
+const cancelSig = scripts.buildCancelScriptSig({ ... });
+const orderHexPQ = scripts.buildPartialFillScriptPQHex({ ... });
+
+// Standard scripts
+const p2pkh = scripts.encodeP2PKHScriptPubKey(pubKeyHash);
+const redeem = scripts.encodeMultisigRedeemScript({ m: 2, pubkeys: [...] });
+const p2sh = scripts.encodeP2SHScriptPubKey(scriptHash);
+const opReturn = scripts.encodeNullDataScript(payload);
+
+// Core primitives
+const builder = new scripts.ScriptBuilder()
+  .opcode(scripts.opcodes.OP_DUP)
+  .opcode(scripts.opcodes.OP_HASH160)
+  .pushBytes(pubKeyHash);
+```
+
+See [`@neuraiproject/neurai-scripts`](https://www.npmjs.com/package/@neuraiproject/neurai-scripts)
+for the full API.
 
 ## Sweep an external private key
 

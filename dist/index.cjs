@@ -7,6 +7,26 @@ var NeuraiKey = require('@neuraiproject/neurai-key');
 var neuraiCreateTransaction = require('@neuraiproject/neurai-create-transaction');
 var Signer = require('@neuraiproject/neurai-sign-transaction');
 var NeuraiAssets = require('@neuraiproject/neurai-assets');
+var neuraiScripts = require('@neuraiproject/neurai-scripts');
+
+function _interopNamespaceDefault(e) {
+    var n = Object.create(null);
+    if (e) {
+        Object.keys(e).forEach(function (k) {
+            if (k !== 'default') {
+                var d = Object.getOwnPropertyDescriptor(e, k);
+                Object.defineProperty(n, k, d.get ? d : {
+                    enumerable: true,
+                    get: function () { return e[k]; }
+                });
+            }
+        });
+    }
+    n.default = e;
+    return Object.freeze(n);
+}
+
+var neuraiScripts__namespace = /*#__PURE__*/_interopNamespaceDefault(neuraiScripts);
 
 class ValidationError extends Error {
     constructor(message) {
@@ -1109,6 +1129,7 @@ async function createInstance(options) {
     return wallet;
 }
 
+exports.scripts = neuraiScripts__namespace;
 exports.Wallet = Wallet;
 exports.createInstance = createInstance;
 exports.default = neuraiWallet;
