@@ -10,3 +10,18 @@ export { default } from "../neuraiWallet.js";
  *   scripts.encodeMultisigRedeemScript({...});
  */
 export * as scripts from "@neuraiproject/neurai-scripts";
+
+/**
+ * Mnemonic utilities needed before a wallet instance exists (creating,
+ * restoring, validating the 12 words). Re-exported from
+ * `@neuraiproject/neurai-key` so a browser consumer can build a wallet
+ * with a single `<script>` tag:
+ *
+ *   const mnemonic = NeuraiJsWallet.generateMnemonic();
+ *   const wallet   = await NeuraiJsWallet.createInstance({ mnemonic, network });
+ */
+export {
+  generateMnemonic,
+  entropyToMnemonic,
+  isMnemonicValid,
+} from "@neuraiproject/neurai-key";

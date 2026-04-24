@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Neurai Testnet Wallet</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Neurai JS Wallet</p>
+          <h1>Testnet Wallet</h1>
+        </div>
+        <div class="actions">
+          <a
+            class="button-link secondary"
+            href="https://faucet-testnet.neurai.org"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Faucet XNA
+          </a>
+          <button id="restore-wallet" class="secondary" type="button">Restore wallet</button>
+          <button id="create-wallet" type="button">Create wallet</button>
+        </div>
+      </header>
+
+      <section class="panel mnemonic-panel">
+        <div>
+          <h2>12 words</h2>
+          <p id="status">Enter an existing mnemonic or create a new temporary wallet.</p>
+        </div>
+        <textarea
+          id="mnemonic"
+          class="mnemonic-input"
+          rows="3"
+          placeholder="Enter 12 words, or leave empty to generate them"
+          spellcheck="false"
+        ></textarea>
+      </section>
+
+      <section class="panel wallet-panel" aria-label="Addresses and balance">
+        <div class="wallet-grid">
+          <article class="wallet-card">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">Testnet Legacy</p>
+                <h2>Legacy Address</h2>
+              </div>
+              <span id="legacy-state" class="pill">No wallet</span>
+            </div>
+            <div id="legacy-address" class="address empty">-</div>
+            <div class="balance-box">
+              <span>Coins</span>
+              <strong id="legacy-balance">0 XNA</strong>
+            </div>
+            <div id="legacy-mempool" class="mempool-box empty">
+              <span>Mempool incoming</span>
+              <strong>No pending receipts</strong>
+            </div>
+          </article>
+
+          <article class="wallet-card">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">Testnet PQ</p>
+                <h2>PQ Address</h2>
+              </div>
+              <span id="pq-state" class="pill">No wallet</span>
+            </div>
+            <div id="pq-address" class="address empty">-</div>
+            <div class="balance-box">
+              <span>Coins</span>
+              <strong id="pq-balance">0 XNA</strong>
+            </div>
+            <div id="pq-mempool" class="mempool-box empty">
+              <span>Mempool incoming</span>
+              <strong>No pending receipts</strong>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="panel send-panel">
+        <div>
+          <p class="eyebrow">Transaction</p>
+          <h2>Send XNA</h2>
+        </div>
+        <form id="send-form" class="send-form">
+          <label>
+            Source
+            <select id="send-source">
+              <option value="legacy">Legacy</option>
+              <option value="pq">PQ</option>
+            </select>
+          </label>
+          <label>
+            Amount
+            <input id="send-amount" type="number" min="0" step="0.00000001" placeholder="0.00" />
+          </label>
+          <label class="destination-field">
+            Destination address
+            <input id="send-destination" type="text" placeholder="Testnet destination address" />
+          </label>
+          <button
+            id="clear-send"
+            class="icon-button secondary"
+            type="button"
+            title="Clear send form"
+            aria-label="Clear send form"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M16.8 3.8 21 8l-8.9 8.9H6.2L3 13.7 11.9 4.8a3.5 3.5 0 0 1 4.9-1Z" />
+              <path d="m8.2 8.5 7.3 7.3" />
+              <path d="M3.8 20h16.4" />
+            </svg>
+          </button>
+          <button id="send-button" type="submit" disabled>Send XNA</button>
+        </form>
+        <p id="send-status" class="muted">Create or restore a wallet before sending.</p>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Assets</p>
+            <h2>Assets by address</h2>
+          </div>
+          <span id="last-update" class="muted">Not updated</span>
+        </div>
+        <div class="data-grid">
+          <div>
+            <h3>Legacy</h3>
+            <div id="legacy-assets" class="list empty">No data</div>
+          </div>
+          <div>
+            <h3>PQ</h3>
+            <div id="pq-assets" class="list empty">No data</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel asset-create-panel">
+        <div>
+          <p class="eyebrow">Asset</p>
+          <h2>Create Asset</h2>
+        </div>
+        <form id="asset-form" class="asset-form">
+          <label>
+            Source
+            <select id="asset-source">
+              <option value="legacy">Legacy</option>
+              <option value="pq">PQ</option>
+            </select>
+          </label>
+          <label>
+            Asset name
+            <input id="asset-name" type="text" placeholder="MYTOKEN" />
+          </label>
+          <button id="asset-check" class="secondary" type="button" disabled>Check name</button>
+          <label>
+            Token quantity
+            <input id="asset-quantity" type="number" min="1" step="1" placeholder="1000000" />
+          </label>
+          <label class="checkbox-label">
+            <input id="asset-reissuable" type="checkbox" />
+            Reissue enabled
+          </label>
+          <button id="asset-create" type="submit" disabled>Create Asset</button>
+        </form>
+        <p id="asset-status" class="muted">Create or restore a wallet before creating assets.</p>
+      </section>
+
+      <section class="panel asset-transfer-panel">
+        <div>
+          <p class="eyebrow">Asset</p>
+          <h2>Transfer Asset</h2>
+        </div>
+        <form id="asset-transfer-form" class="asset-transfer-form">
+          <label>
+            Source
+            <select id="asset-transfer-source">
+              <option value="legacy">Legacy</option>
+              <option value="pq">PQ</option>
+            </select>
+          </label>
+          <label>
+            Asset name
+              <select id="asset-transfer-name" disabled>
+                <option value="">No assets available</option>
+              </select>
+          </label>
+          <label>
+            Token quantity
+            <input id="asset-transfer-quantity" type="number" min="1" step="1" placeholder="100" />
+          </label>
+          <label class="destination-field">
+            Destination address
+            <input
+              id="asset-transfer-destination"
+              type="text"
+              placeholder="Testnet destination address"
+            />
+          </label>
+          <button id="asset-transfer-button" type="submit" disabled>Transfer Asset</button>
+        </form>
+        <p id="asset-transfer-status" class="muted">
+          Create or restore a wallet before transferring assets.
+        </p>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">History</p>
+            <h2>Movements</h2>
+          </div>
+        </div>
+        <div class="data-grid">
+          <div>
+            <h3>Legacy</h3>
+            <div id="legacy-history" class="list empty">No movements</div>
+          </div>
+          <div>
+            <h3>PQ</h3>
+            <div id="pq-history" class="list empty">No movements</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="../dist/NeuraiJsWallet.global.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

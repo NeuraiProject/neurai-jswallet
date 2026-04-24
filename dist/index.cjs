@@ -55,7 +55,7 @@ function isPQAddress(address) {
     return address.startsWith("nq1") || address.startsWith("tnq1");
 }
 function isPQUTXO(utxo) {
-    return utxo.script?.startsWith("5114") === true;
+    return utxo.script?.startsWith("5120") === true;
 }
 function utxoKey(utxo) {
     return `${utxo.txid}:${utxo.outputIndex}`;
@@ -450,6 +450,92 @@ async function broadcastBuilt(wallet, result) {
     return result;
 }
 
+function getAssetPackageNetwork(network) {
+    if (network === "xna-legacy-test")
+        return "xna-test";
+    if (network === "xna-legacy")
+        return "xna";
+    return network;
+}
+function stringifyUnknown(value) {
+    if (typeof value === "string")
+        return value;
+    try {
+        return JSON.stringify(value);
+    }
+    catch {
+        return String(value);
+    }
+}
+function describeRpcError(error) {
+    if (error instanceof Error && error.message) {
+        return error.message;
+    }
+    if (typeof error === "string")
+        return error;
+    if (error && typeof error === "object") {
+        const value = error;
+        if (value.error && typeof value.error === "object") {
+            const rpcError = value.error;
+            if (rpcError.message) {
+                return rpcError.code
+                    ? `${String(rpcError.message)} (code ${String(rpcError.code)})`
+                    : String(rpcError.message);
+            }
+            return stringifyUnknown(value.error);
+        }
+        if (value.error)
+            return stringifyUnknown(value.error);
+        if (value.description)
+            return stringifyUnknown(value.description);
+        if (value.status || value.statusText) {
+            return `HTTP ${String(value.status ?? "")} ${String(value.statusText ?? "")}`.trim();
+        }
+        return stringifyUnknown(error);
+    }
+    return "Unknown RPC error";
+}
+function normalizeAssetRpcQuantities(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => normalizeAssetRpcQuantities(item));
+    }
+    if (!value || typeof value !== "object")
+        return value;
+    const input = value;
+    const output = {};
+    for (const [key, child] of Object.entries(input)) {
+        // neurai-assets currently emits asset_quantity scaled by 1e8; the node RPC
+        // expects raw units scaled by the asset's declared decimals.
+        if (key === "asset_quantity" &&
+            typeof child === "number" &&
+            typeof input.units === "number") {
+            output[key] = Math.round(child / Math.pow(10, 8 - input.units));
+            continue;
+        }
+        output[key] = normalizeAssetRpcQuantities(child);
+    }
+    return output;
+}
+function normalizeAssetRpcParams(method, params) {
+    if (method !== "createrawtransaction" || params.length < 2)
+        return params;
+    return [params[0], normalizeAssetRpcQuantities(params[1]), ...params.slice(2)];
+}
+function createAssetRpc(wallet) {
+    return async (method, p) => {
+        try {
+            const params = normalizeAssetRpcParams(method, p ?? []);
+            const result = await wallet.rpc(method, params);
+            if (method === "createrawtransaction" && !result) {
+                throw new Error("createrawtransaction returned an empty result");
+            }
+            return result;
+        }
+        catch (error) {
+            throw new Error(`RPC ${method} failed: ${describeRpcError(error)}`);
+        }
+    };
+}
 class WalletAssets {
     queries;
     wallet;
@@ -510,9 +596,10 @@ class WalletAssets {
         const broadcast = params.broadcast !== false;
         const toAddress = params.toAddress || (await this.wallet.getReceiveAddress());
         const changeAddress = params.changeAddress || (await this.wallet.getChangeAddress());
-        const rpc = (method, p) => this.wallet.rpc(method, p ?? []);
+        const rpc = createAssetRpc(this.wallet);
+        const network = getAssetPackageNetwork(this.wallet.network);
         const assets = new NeuraiAssets(rpc, {
-            network: this.wallet.network,
+            network,
             addresses: this.wallet.getAddresses(),
             changeAddress,
             toAddress,
@@ -526,7 +613,7 @@ class WalletAssets {
             toAddress,
             changeAddress,
             walletAddresses: this.wallet.getAddresses(),
-            network: this.wallet.network,
+            network,
         });
         const signedHex = await this._signResult(result);
         let txid = null;
@@ -1129,6 +1216,18 @@ async function createInstance(options) {
     return wallet;
 }
 
+Object.defineProperty(exports, "entropyToMnemonic", {
+    enumerable: true,
+    get: function () { return NeuraiKey.entropyToMnemonic; }
+});
+Object.defineProperty(exports, "generateMnemonic", {
+    enumerable: true,
+    get: function () { return NeuraiKey.generateMnemonic; }
+});
+Object.defineProperty(exports, "isMnemonicValid", {
+    enumerable: true,
+    get: function () { return NeuraiKey.isMnemonicValid; }
+});
 exports.scripts = neuraiScripts__namespace;
 exports.Wallet = Wallet;
 exports.createInstance = createInstance;

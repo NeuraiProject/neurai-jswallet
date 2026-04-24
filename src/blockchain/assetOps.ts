@@ -36,6 +36,107 @@ export interface AssetOpExecuteOptions {
 
 type RpcFn = (method: string, params?: unknown[]) => Promise<unknown> | unknown;
 
+type RpcErrorShape = {
+  error?: unknown;
+  description?: unknown;
+  status?: unknown;
+  statusText?: unknown;
+};
+
+function getAssetPackageNetwork(network: ChainType): ChainType {
+  if (network === "xna-legacy-test") return "xna-test";
+  if (network === "xna-legacy") return "xna";
+  return network;
+}
+
+function stringifyUnknown(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function describeRpcError(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (typeof error === "string") return error;
+
+  if (error && typeof error === "object") {
+    const value = error as RpcErrorShape;
+
+    if (value.error && typeof value.error === "object") {
+      const rpcError = value.error as { message?: unknown; code?: unknown };
+      if (rpcError.message) {
+        return rpcError.code
+          ? `${String(rpcError.message)} (code ${String(rpcError.code)})`
+          : String(rpcError.message);
+      }
+      return stringifyUnknown(value.error);
+    }
+
+    if (value.error) return stringifyUnknown(value.error);
+    if (value.description) return stringifyUnknown(value.description);
+    if (value.status || value.statusText) {
+      return `HTTP ${String(value.status ?? "")} ${String(value.statusText ?? "")}`.trim();
+    }
+
+    return stringifyUnknown(error);
+  }
+
+  return "Unknown RPC error";
+}
+
+function normalizeAssetRpcQuantities(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeAssetRpcQuantities(item));
+  }
+
+  if (!value || typeof value !== "object") return value;
+
+  const input = value as Record<string, unknown>;
+  const output: Record<string, unknown> = {};
+
+  for (const [key, child] of Object.entries(input)) {
+    // neurai-assets currently emits asset_quantity scaled by 1e8; the node RPC
+    // expects raw units scaled by the asset's declared decimals.
+    if (
+      key === "asset_quantity" &&
+      typeof child === "number" &&
+      typeof input.units === "number"
+    ) {
+      output[key] = Math.round(child / Math.pow(10, 8 - input.units));
+      continue;
+    }
+
+    output[key] = normalizeAssetRpcQuantities(child);
+  }
+
+  return output;
+}
+
+function normalizeAssetRpcParams(method: string, params: unknown[]): unknown[] {
+  if (method !== "createrawtransaction" || params.length < 2) return params;
+  return [params[0], normalizeAssetRpcQuantities(params[1]), ...params.slice(2)];
+}
+
+function createAssetRpc(wallet: Wallet): RpcFn {
+  return async (method, p) => {
+    try {
+      const params = normalizeAssetRpcParams(method, (p as any[]) ?? []);
+      const result = await wallet.rpc(method, params);
+      if (method === "createrawtransaction" && !result) {
+        throw new Error("createrawtransaction returned an empty result");
+      }
+      return result;
+    } catch (error) {
+      throw new Error(`RPC ${method} failed: ${describeRpcError(error)}`);
+    }
+  };
+}
+
 export class WalletAssets {
   readonly queries: AssetQueries;
   private readonly wallet: Wallet;
@@ -211,10 +312,10 @@ export class WalletAssets {
     const changeAddress =
       (params.changeAddress as string | undefined) || (await this.wallet.getChangeAddress());
 
-    const rpc: RpcFn = (method, p) =>
-      this.wallet.rpc(method, (p as any[]) ?? []);
+    const rpc = createAssetRpc(this.wallet);
+    const network = getAssetPackageNetwork(this.wallet.network);
     const assets = new (NeuraiAssets as any)(rpc, {
-      network: this.wallet.network,
+      network,
       addresses: this.wallet.getAddresses(),
       changeAddress,
       toAddress,
@@ -230,7 +331,7 @@ export class WalletAssets {
       toAddress,
       changeAddress,
       walletAddresses: this.wallet.getAddresses(),
-      network: this.wallet.network,
+      network,
     });
 
     const signedHex = await this._signResult(result);

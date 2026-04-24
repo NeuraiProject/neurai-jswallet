@@ -51,15 +51,45 @@ Examples below use ESM (`.mjs`).
 ## Quick start
 
 ```js
-import NeuraiWallet from "@neuraiproject/neurai-jswallet";
+import NeuraiWallet, { generateMnemonic } from "@neuraiproject/neurai-jswallet";
 
+// Create a brand-new wallet
+const mnemonic = generateMnemonic();
 const wallet = await NeuraiWallet.createInstance({
-  mnemonic: "horse sort develop lab chest talk gift damp session sun festival squirrel",
+  mnemonic,
   network: "xna-test",
 });
 
+console.log(mnemonic);
 console.log(await wallet.getBalance());
+
+// Or restore from an existing mnemonic
+const restored = await NeuraiWallet.createInstance({
+  mnemonic: "horse sort develop lab chest talk gift damp session sun festival squirrel",
+  network: "xna-test",
+});
 ```
+
+### Mnemonic utilities
+
+Top-level helpers re-exported from `@neuraiproject/neurai-key`. Useful before
+a wallet instance exists (creating, restoring, validating the seed):
+
+```js
+import {
+  generateMnemonic,
+  isMnemonicValid,
+  entropyToMnemonic,
+} from "@neuraiproject/neurai-jswallet";
+
+const mnemonic = generateMnemonic();          // 12 words, fresh entropy
+isMnemonicValid(mnemonic);                    // true / false
+entropyToMnemonic("00112233445566778899aabbccddeeff"); // hex → words
+```
+
+The same names are exposed on `globalThis.NeuraiJsWallet` when loading the
+IIFE bundle from a `<script>` tag, so a browser wallet can be built from a
+single script.
 
 ## Common operations
 
@@ -453,14 +483,20 @@ console.log(block);
 
 ## Use from a browser via `<script>`
 
+A single IIFE bundle exposes everything you need (wallet API, mnemonic
+helpers, script primitives, asset toolkit) on `window.NeuraiJsWallet`. No
+extra scripts required:
+
 ```html
 <script src="https://unpkg.com/@neuraiproject/neurai-jswallet/dist/NeuraiJsWallet.global.js"></script>
 <script type="module">
+  const mnemonic = NeuraiJsWallet.generateMnemonic();
   const wallet = await NeuraiJsWallet.createInstance({
-    mnemonic: "horse sort develop lab chest talk gift damp session sun festival squirrel",
+    mnemonic,
     network: "xna-test",
     offlineMode: true,
   });
+  console.log(mnemonic);
   console.log(await wallet.getReceiveAddress());
 </script>
 ```

@@ -29,7 +29,7 @@ export function isPQAddress(address: string): boolean {
 }
 
 export function isPQUTXO(utxo: IUTXO): boolean {
-  return utxo.script?.startsWith("5114") === true;
+  return utxo.script?.startsWith("5120") === true;
 }
 
 export function utxoKey(utxo: { txid: string; outputIndex: number }): string {
