@@ -644,22 +644,39 @@ class WalletAssets {
      * then sign with the wallet's private keys.
      */
     async _signResult(result) {
-        const { utxos: spendable } = await loadSpendableFunds(this.wallet);
-        const map = buildUTXOMap(spendable);
-        const inputUTXOs = [];
-        for (const i of result.inputs ?? []) {
-            const key = utxoKey({ txid: i.txid, outputIndex: i.vout });
-            const found = map.get(key);
-            if (found) {
-                inputUTXOs.push(found);
-                continue;
-            }
-            // Fallback: synthesize a minimal UTXO from the BuildInput; sign-tx
-            // requires `script` so try to reconstruct it.
-            throw new Error(`Could not find UTXO ${key} in the wallet's spendable set; cannot sign asset op`);
+        // neurai-assets's selector already fetched the UTXOs from
+        // `getaddressutxos` (which includes `script`) and exposes them on
+        // `result.utxos`. Reusing them here avoids a redundant round trip
+        // through the RPC for `getaddressutxos` / `getaddressmempool` /
+        // `estimatesmartfee` per asset operation.
+        let inputUTXOs;
+        try {
+            inputUTXOs = this._resolveInputUTXOs(result.inputs ?? [], (result.utxos ?? []));
+        }
+        catch {
+            // Fall back to a fresh wallet-side fetch if anything is missing
+            // (older neurai-assets versions, mempool inputs, or other corner
+            // cases). Slower path, but always correct.
+            const { utxos: spendable } = await loadSpendableFunds(this.wallet);
+            inputUTXOs = this._resolveInputUTXOs(result.inputs ?? [], spendable);
         }
         const privateKeys = buildPrivateKeyMap(this.wallet, inputUTXOs);
         return signRawTransaction(this.wallet.network, result.rawTx, inputUTXOs, privateKeys);
+    }
+    _resolveInputUTXOs(inputs, candidates) {
+        const map = buildUTXOMap(candidates);
+        const resolved = [];
+        for (const i of inputs) {
+            const key = utxoKey({ txid: i.txid, outputIndex: i.vout });
+            const found = map.get(key);
+            // Sign-tx requires `script` to derive the witness; bail out so the
+            // caller can try the slower fallback path.
+            if (!found || typeof found.script !== "string" || found.script.length === 0) {
+                throw new Error(`Missing UTXO/script for ${key}`);
+            }
+            resolved.push(found);
+        }
+        return resolved;
     }
 }
 

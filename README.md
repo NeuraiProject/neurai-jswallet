@@ -248,6 +248,17 @@ All return an `AssetOpResult`:
 }
 ```
 
+### How an asset op talks to the node
+
+Internally, every asset op runs in two phases — build (`@neuraiproject/neurai-assets` selects UTXOs and produces an unsigned `rawTx`) and sign + broadcast (this wallet derives the witness and submits). To keep round-trip count low against remote / public RPC endpoints, the wallet:
+
+- reuses the UTXOs that the build phase already fetched (`result.utxos`) instead of re-querying `getaddressutxos` / `getaddressmempool` before signing — saves 4-5 RPC calls per op.
+- relies on `@neuraiproject/neurai-assets ≥ 1.3.1`, which caches `estimatesmartfee` for the lifetime of a single build (the rate is stable for that window) — saves 1 more.
+
+If `result.utxos` ever lacks the `script` field (older `neurai-assets` releases or unusual code paths), the wallet falls back to a fresh fetch automatically — slower path, but always correct.
+
+Net effect: an `issueRoot` from a PQ address went from ~12 RPC round trips to ~5 in this version. Latency improvement scales linearly with your RPC RTT.
+
 ### Issue assets
 
 ```js
