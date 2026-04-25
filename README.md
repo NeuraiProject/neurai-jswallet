@@ -164,6 +164,37 @@ const assetTx = await wallet.send({
 console.log("Asset tx:", assetTx.transactionId);
 ```
 
+### Drain the wallet — `sendMax`
+
+Pass `sendMax: true` to send the entire base-currency (XNA) balance to a
+single recipient. The wallet ends at exactly **0** — no leftover dust, no
+manual fee inflation. Internally the size is estimated **without** a change
+output and the amount is computed as `balance − fee` in satoshis (so there is
+no IEEE-754 drift). `amount` is ignored and may be omitted.
+
+```js
+const result = await wallet.send({
+  toAddress: "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy",
+  sendMax: true,
+});
+console.log(result.transactionId);
+console.log(result.debug.sentMax);    // true
+console.log(result.debug.fee);        // actual fee paid
+console.log(result.debug.amount);     // amount that reached the recipient
+```
+
+Restrictions: `sendMax` only works for the base currency (XNA) and a single
+recipient. Combining it with `assetName` or `sendMany` throws a
+`ValidationError`.
+
+> **Sub-dust change is absorbed into the fee.** For *any* send (with or
+> without `sendMax`), if the change output would be under the network's
+> 546-sat dust threshold the wallet drops the change output entirely and the
+> residue becomes part of the miner fee. This is the only way for the network
+> to accept the transaction — sub-dust outputs are rejected. The actual
+> absorbed sats are reported as `result.debug.dustAbsorbedSats` for
+> transparency.
+
 ### Send to many recipients
 
 ```js

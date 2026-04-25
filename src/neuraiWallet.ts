@@ -461,6 +461,7 @@ export class Wallet {
       assetName: options.assetName ?? this.baseCurrency,
       toAddress: options.toAddress,
       wallet: this,
+      sendMax: options.sendMax,
       forcedUTXOs: options.forcedUTXOs,
       forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
       ...(options.forcedChangeAddressAssets

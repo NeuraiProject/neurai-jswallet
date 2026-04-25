@@ -10,9 +10,18 @@ export interface ISettings {
   headline: string;
 }
 export interface ISend {
-  amount: number;
+  amount?: number;
   assetName?: string;
   toAddress: string;
+
+  /**
+   * Drain the entire base-currency (XNA) balance to `toAddress`.
+   * When true:
+   *   - `amount` is ignored (computed as balance − fee in satoshis).
+   *   - The transaction is built with NO change output, so the wallet ends
+   *     at exactly 0. Only valid for the base currency.
+   */
+  sendMax?: boolean;
 
   forcedUTXOs?: IForcedUTXO[];
   forcedChangeAddressAssets?: string;
@@ -54,15 +63,20 @@ export interface ISendManyTransactionOptions {
   assetName?: string;
   outputs: { [key: string]: number };
   wallet: Wallet;
+  /** Drain the wallet's full base-currency balance. Requires exactly one
+   *  recipient and is incompatible with asset transfers. */
+  sendMax?: boolean;
   forcedUTXOs?: IForcedUTXO[];
   forcedChangeAddressAssets?: string;
   forcedChangeAddressBaseCurrency?: string;
 }
 export interface ITransactionOptions {
-  amount: number;
+  amount?: number;
   assetName: string;
   toAddress: string;
   wallet: Wallet;
+  /** Drain the wallet's full base-currency balance to `toAddress`. */
+  sendMax?: boolean;
 
   forcedUTXOs?: IForcedUTXO[];
   forcedChangeAddressAssets?: string;
@@ -96,6 +110,13 @@ export interface ISendResult {
     rawUnsignedTransaction?: string;
     xnaAmount: number;
     xnaChangeAmount: number;
+    /**
+     * Sub-dust residue (sats) that would have been emitted as change but was
+     * absorbed into the miner fee instead. 0 for normal transactions.
+     */
+    dustAbsorbedSats?: number;
+    /** True when the transaction was built via `sendMax` (no change output). */
+    sentMax?: boolean;
     signedTransaction?: string;
     UTXOs: IUTXO[];
     walletMempool: any;
@@ -257,13 +278,6 @@ export interface IAddressMetaData {
   privateKey: string;
   seedKey?: string;
   keyType?: "legacy" | "pq";
-}
-
-export interface ITransactionOptions {
-  amount: number;
-  assetName: string;
-  toAddress: string;
-  wallet: Wallet;
 }
 
 export interface IOptions {

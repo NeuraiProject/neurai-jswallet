@@ -15,6 +15,12 @@ const DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
 
 export const SATS_PER_XNA = 100_000_000;
 
+// Minimum spendable change. Sub-dust outputs are rejected by the network
+// (standard 546 sats P2PKH dust threshold inherited from Bitcoin/Ravencoin).
+// When a change output would land below this, jswallet drops the output
+// and the residual is absorbed by the miner as part of the implicit fee.
+export const DUST_THRESHOLD_SATS = 546n;
+
 export function xnaToSats(xna: number): bigint {
   // Avoid floating point drift by going through string-rounded sats
   return BigInt(Math.round(xna * SATS_PER_XNA));
@@ -38,6 +44,35 @@ export function utxoKey(utxo: { txid: string; outputIndex: number }): string {
 
 export function buildUTXOMap(utxos: IUTXO[]): Map<string, IUTXO> {
   return new Map(utxos.map((u) => [utxoKey(u), u]));
+}
+
+export function selectAllUTXOsByAsset(
+  utxos: IUTXO[],
+  assetName: string,
+): IUTXO[] {
+  const result: IUTXO[] = [];
+  for (const u of utxos) {
+    if (u.assetName !== assetName) continue;
+    if (u.satoshis === 0) continue;
+    result.push(u);
+  }
+  return result;
+}
+
+export function sumUTXOSatoshis(
+  utxos: IUTXO[],
+  assetName: string,
+): bigint {
+  let sum = 0n;
+  for (const u of utxos) {
+    if (u.assetName !== assetName) continue;
+    sum += BigInt(u.satoshis);
+  }
+  return sum;
+}
+
+export function feeSatsFromSize(sizeKb: number, feeRate: number): bigint {
+  return BigInt(Math.round(sizeKb * feeRate * SATS_PER_XNA));
 }
 
 export function selectUTXOs(

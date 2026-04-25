@@ -48,9 +48,17 @@ const LEGACY_OUTPUT_BYTES = 34;
 const PQ_OUTPUT_BYTES = 31;
 const DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
 const SATS_PER_XNA = 100_000_000;
+// Minimum spendable change. Sub-dust outputs are rejected by the network
+// (standard 546 sats P2PKH dust threshold inherited from Bitcoin/Ravencoin).
+// When a change output would land below this, jswallet drops the output
+// and the residual is absorbed by the miner as part of the implicit fee.
+const DUST_THRESHOLD_SATS = 546n;
 function xnaToSats(xna) {
     // Avoid floating point drift by going through string-rounded sats
     return BigInt(Math.round(xna * SATS_PER_XNA));
+}
+function satsToXna(sats) {
+    return Number(sats) / SATS_PER_XNA;
 }
 function isPQAddress(address) {
     return address.startsWith("nq1") || address.startsWith("tnq1");
@@ -63,6 +71,29 @@ function utxoKey(utxo) {
 }
 function buildUTXOMap(utxos) {
     return new Map(utxos.map((u) => [utxoKey(u), u]));
+}
+function selectAllUTXOsByAsset(utxos, assetName) {
+    const result = [];
+    for (const u of utxos) {
+        if (u.assetName !== assetName)
+            continue;
+        if (u.satoshis === 0)
+            continue;
+        result.push(u);
+    }
+    return result;
+}
+function sumUTXOSatoshis(utxos, assetName) {
+    let sum = 0n;
+    for (const u of utxos) {
+        if (u.assetName !== assetName)
+            continue;
+        sum += BigInt(u.satoshis);
+    }
+    return sum;
+}
+function feeSatsFromSize(sizeKb, feeRate) {
+    return BigInt(Math.round(sizeKb * feeRate * SATS_PER_XNA));
 }
 function selectUTXOs(utxos, assetName, amount) {
     const result = [];
@@ -259,19 +290,79 @@ function tagForcedUTXOs(forced) {
 async function buildSendManyInternal(wallet, options) {
     const assetName = options.assetName || wallet.baseCurrency;
     const outputs = options.outputs;
+    const sendMax = options.sendMax === true;
     if (!outputs || Object.keys(outputs).length === 0) {
         throw new ValidationError("outputs is mandatory");
     }
+    const transferring = isAssetTransfer(wallet, assetName);
+    if (sendMax) {
+        if (transferring) {
+            throw new ValidationError("sendMax is only supported for the base currency");
+        }
+        if (Object.keys(outputs).length !== 1) {
+            throw new ValidationError("sendMax requires exactly one recipient");
+        }
+    }
     const forcedUTXOs = tagForcedUTXOs(options.forcedUTXOs);
     const { utxos: allUTXOs, feeRate } = await loadSpendableFunds(wallet, forcedUTXOs);
-    const amount = totalAmount(outputs);
-    const transferring = isAssetTransfer(wallet, assetName);
     const changeAddressBaseCurrency = options.forcedChangeAddressBaseCurrency ||
         (await wallet.getChangeAddress());
     const toAddresses = Object.keys(outputs);
     if (toAddresses.includes(changeAddressBaseCurrency)) {
         throw new ValidationError("Change address cannot be the same as to address");
     }
+    const network = wallet.network;
+    // ------------------------------------------------------------------
+    // sendMax: drain entire base-currency balance, NO change output.
+    // Math is done in satoshis to avoid IEEE-754 drift.
+    // ------------------------------------------------------------------
+    if (sendMax) {
+        const recipient = toAddresses[0];
+        const baseUTXOs = selectAllUTXOsByAsset(allUTXOs, wallet.baseCurrency);
+        if (baseUTXOs.length === 0) {
+            throw new InsufficientFundsError(`No ${wallet.baseCurrency} UTXOs available to spend`);
+        }
+        // Size estimated WITHOUT a change output — that is what we will broadcast.
+        const sizeKb = estimateSizeKB(baseUTXOs, [recipient]);
+        const feeSats = feeSatsFromSize(sizeKb, feeRate);
+        const availableSats = sumUTXOSatoshis(baseUTXOs, wallet.baseCurrency);
+        if (availableSats <= feeSats) {
+            throw new InsufficientFundsError(`Available ${satsToXna(availableSats)} ${wallet.baseCurrency} cannot cover the fee ${satsToXna(feeSats)}`);
+        }
+        const amountSats = availableSats - feeSats;
+        const txPayments = [
+            { address: recipient, valueSats: amountSats },
+        ];
+        const inputs = utxosToTxInputs(baseUTXOs);
+        const built = neuraiCreateTransaction.createPaymentTransaction({ inputs, payments: txPayments });
+        const rawTxHex = built.rawTx;
+        const forcedExtras = options.forcedUTXOs?.map((f) => ({
+            address: f.address,
+            privateKey: f.privateKey,
+        }));
+        const privateKeys = buildPrivateKeyMap(wallet, baseUTXOs, forcedExtras);
+        const signedHex = signRawTransaction(network, rawTxHex, baseUTXOs, privateKeys);
+        const walletMempool = await wallet.getMempool();
+        const amountXna = satsToXna(amountSats);
+        const feeXna = satsToXna(feeSats);
+        return {
+            rawTxHex,
+            signedHex,
+            inputs: baseUTXOs,
+            outputs: { [recipient]: amountXna },
+            fee: feeXna,
+            baseCurrencyAmount: amountXna + feeXna,
+            baseCurrencyChange: 0,
+            assetChange: 0,
+            dustAbsorbedSats: 0,
+            sentMax: true,
+            walletMempool,
+        };
+    }
+    // ------------------------------------------------------------------
+    // Standard flow (asset transfer or regular XNA send).
+    // ------------------------------------------------------------------
+    const amount = totalAmount(outputs);
     let assetChange = 0;
     let assetUTXOs = [];
     let baseCurrencyUTXOs = [];
@@ -307,17 +398,39 @@ async function buildSendManyInternal(wallet, options) {
     const selectedUTXOs = transferring
         ? [...assetUTXOs, ...baseCurrencyUTXOs]
         : baseCurrencyUTXOs;
-    const sizeKb = estimateSizeKB(selectedUTXOs, transferring
+    // Worst-case size — assumes a change output exists. We may drop it below.
+    const sizeKbWithChange = estimateSizeKB(selectedUTXOs, transferring
         ? [...toAddresses, changeAddressBaseCurrency, changeAddressAsset]
         : [...toAddresses, changeAddressBaseCurrency]);
-    const fee = sizeKb * feeRate;
-    const baseCurrencySpent = transferring ? fee : amount + fee;
-    const baseCurrencyAvailable = sumByAsset(baseCurrencyUTXOs, wallet.baseCurrency);
-    const baseCurrencyChange = shortenNumber(baseCurrencyAvailable - baseCurrencySpent);
-    // Compose the user-facing outputs object (mirrors the old SendManyTransaction shape)
+    const feeSatsWithChange = feeSatsFromSize(sizeKbWithChange, feeRate);
+    // Sat-precise change. Avoids the IEEE-754 drift that previously left
+    // sub-dust change UTXOs that the network rejected.
+    const baseCurrencyAvailableSats = sumUTXOSatoshis(baseCurrencyUTXOs, wallet.baseCurrency);
+    const amountSats = transferring ? 0n : xnaToSats(amount);
+    const tentativeChangeSats = baseCurrencyAvailableSats - amountSats - feeSatsWithChange;
+    if (tentativeChangeSats < 0n) {
+        throw new InsufficientFundsError(`Selected UTXOs do not cover amount + fee for ${wallet.baseCurrency}`);
+    }
+    let baseCurrencyChangeSats;
+    let feeSats;
+    let dustAbsorbedSats = 0n;
+    if (tentativeChangeSats < DUST_THRESHOLD_SATS) {
+        // Below dust → drop the change output. The residue is implicitly paid
+        // to the miner as part of the fee. Required for the network to accept
+        // the transaction (sub-dust outputs are non-standard).
+        baseCurrencyChangeSats = 0n;
+        feeSats = feeSatsWithChange + tentativeChangeSats;
+        dustAbsorbedSats = tentativeChangeSats;
+    }
+    else {
+        baseCurrencyChangeSats = tentativeChangeSats;
+        feeSats = feeSatsWithChange;
+    }
+    const baseCurrencyChange = satsToXna(baseCurrencyChangeSats);
+    const fee = satsToXna(feeSats);
+    // Compose the user-facing outputs map.
     const totalOutputs = {};
     if (transferring) {
-        totalOutputs[changeAddressBaseCurrency] = baseCurrencyChange;
         if (assetChange > 0) {
             totalOutputs[changeAddressAsset] = {
                 transfer: { [assetName]: shortenNumber(assetChange) },
@@ -326,26 +439,68 @@ async function buildSendManyInternal(wallet, options) {
         for (const addy of toAddresses) {
             totalOutputs[addy] = { transfer: { [assetName]: outputs[addy] } };
         }
+        if (baseCurrencyChangeSats > 0n) {
+            totalOutputs[changeAddressBaseCurrency] = baseCurrencyChange;
+        }
     }
     else {
         for (const addy of toAddresses) {
             totalOutputs[addy] = outputs[addy];
         }
-        totalOutputs[changeAddressBaseCurrency] = baseCurrencyChange;
+        if (baseCurrencyChangeSats > 0n) {
+            totalOutputs[changeAddressBaseCurrency] = baseCurrencyChange;
+        }
     }
-    // Build the actual rawTx via neurai-create-transaction
+    // Build the actual rawTx via neurai-create-transaction, in satoshis.
     const inputs = utxosToTxInputs(selectedUTXOs);
-    const network = wallet.network;
-    const rawTxHex = transferring
-        ? buildAssetTransferRawTx(network, inputs, {
-            toAddressAmounts: outputs,
-            assetName,
-            baseCurrencyChangeAddress: changeAddressBaseCurrency,
-            baseCurrencyChange,
-            assetChangeAddress: changeAddressAsset,
-            assetChange: shortenNumber(assetChange),
-        })
-        : buildPaymentRawTx(network, inputs, totalOutputs);
+    let rawTxHex;
+    if (transferring) {
+        const transfers = [];
+        for (const [address, amt] of Object.entries(outputs)) {
+            transfers.push({
+                address,
+                assetName,
+                amountRaw: xnaToSats(amt),
+            });
+        }
+        if (assetChange > 0) {
+            transfers.push({
+                address: changeAddressAsset,
+                assetName,
+                amountRaw: xnaToSats(shortenNumber(assetChange)),
+            });
+        }
+        const txPayments = [];
+        if (baseCurrencyChangeSats > 0n) {
+            txPayments.push({
+                address: changeAddressBaseCurrency,
+                valueSats: baseCurrencyChangeSats,
+            });
+        }
+        const built = neuraiCreateTransaction.createStandardAssetTransferTransaction({
+            inputs,
+            payments: txPayments,
+            transfers,
+        });
+        rawTxHex = built.rawTx;
+    }
+    else {
+        const txPayments = [];
+        for (const addy of toAddresses) {
+            txPayments.push({
+                address: addy,
+                valueSats: xnaToSats(outputs[addy]),
+            });
+        }
+        if (baseCurrencyChangeSats > 0n) {
+            txPayments.push({
+                address: changeAddressBaseCurrency,
+                valueSats: baseCurrencyChangeSats,
+            });
+        }
+        const built = neuraiCreateTransaction.createPaymentTransaction({ inputs, payments: txPayments });
+        rawTxHex = built.rawTx;
+    }
     const forcedExtras = options.forcedUTXOs?.map((f) => ({
         address: f.address,
         privateKey: f.privateKey,
@@ -362,42 +517,10 @@ async function buildSendManyInternal(wallet, options) {
         baseCurrencyAmount: transferring ? fee : amount + fee,
         baseCurrencyChange,
         assetChange: transferring ? shortenNumber(assetChange) : 0,
+        dustAbsorbedSats: Number(dustAbsorbedSats),
+        sentMax: false,
         walletMempool,
     };
-}
-function buildPaymentRawTx(_network, inputs, payments) {
-    const txPayments = Object.entries(payments).map(([address, amountXna]) => ({
-        address,
-        valueSats: xnaToSats(amountXna),
-    }));
-    const built = neuraiCreateTransaction.createPaymentTransaction({ inputs, payments: txPayments });
-    return built.rawTx;
-}
-function buildAssetTransferRawTx(_network, inputs, spec) {
-    const transfers = [];
-    for (const [address, amount] of Object.entries(spec.toAddressAmounts)) {
-        transfers.push({ address, assetName: spec.assetName, amountRaw: xnaToSats(amount) });
-    }
-    if (spec.assetChange > 0) {
-        transfers.push({
-            address: spec.assetChangeAddress,
-            assetName: spec.assetName,
-            amountRaw: xnaToSats(spec.assetChange),
-        });
-    }
-    const payments = [];
-    if (spec.baseCurrencyChange > 0) {
-        payments.push({
-            address: spec.baseCurrencyChangeAddress,
-            valueSats: xnaToSats(spec.baseCurrencyChange),
-        });
-    }
-    const built = neuraiCreateTransaction.createStandardAssetTransferTransaction({
-        inputs,
-        payments,
-        transfers,
-    });
-    return built.rawTx;
 }
 function toSendResult(build, params) {
     return {
@@ -415,6 +538,8 @@ function toSendResult(build, params) {
             rawUnsignedTransaction: build.rawTxHex,
             xnaAmount: build.baseCurrencyAmount,
             xnaChangeAmount: build.baseCurrencyChange,
+            dustAbsorbedSats: build.dustAbsorbedSats,
+            sentMax: build.sentMax,
             signedTransaction: build.signedHex,
             UTXOs: build.inputs,
             walletMempool: build.walletMempool,
@@ -424,22 +549,31 @@ function toSendResult(build, params) {
 async function createTransactionForOptions(wallet, options) {
     if (!options.toAddress)
         throw Error("toAddress is mandatory");
-    if (!options.amount)
+    const sendMax = options.sendMax === true;
+    if (!sendMax && !options.amount)
         throw Error("amount is mandatory");
     const assetName = options.assetName || wallet.baseCurrency;
     const build = await buildSendManyInternal(wallet, {
         assetName,
-        outputs: { [options.toAddress]: options.amount },
+        outputs: { [options.toAddress]: options.amount ?? 0 },
+        sendMax,
         forcedChangeAddressAssets: options.forcedChangeAddressAssets,
         forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
         forcedUTXOs: options.forcedUTXOs,
     });
-    return toSendResult(build, { amount: options.amount, assetName });
+    // For sendMax the user-facing "amount" is the actual amount sent
+    // (computed from balance − fee), not the value passed in by the caller.
+    const reportedAmount = sendMax
+        ? build.baseCurrencyAmount - build.fee
+        : (options.amount ?? 0);
+    return toSendResult(build, { amount: reportedAmount, assetName });
 }
 async function createSendManyForOptions(wallet, options) {
     const assetName = options.assetName || wallet.baseCurrency;
     const build = await buildSendManyInternal(wallet, options);
-    const amount = totalAmount(options.outputs);
+    const amount = options.sendMax === true
+        ? build.baseCurrencyAmount - build.fee
+        : totalAmount(options.outputs);
     return toSendResult(build, { amount, assetName });
 }
 async function broadcastBuilt(wallet, result) {
@@ -1087,6 +1221,7 @@ class Wallet {
             amount: options.amount,
             assetName: options.assetName ?? this.baseCurrency,
             toAddress: options.toAddress,
+            sendMax: options.sendMax,
             forcedUTXOs: options.forcedUTXOs,
             forcedChangeAddressBaseCurrency: options.forcedChangeAddressBaseCurrency,
             ...(options.forcedChangeAddressAssets
