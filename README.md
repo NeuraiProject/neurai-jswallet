@@ -284,7 +284,7 @@ All return an `AssetOpResult`:
 Internally, every asset op runs in two phases — build (`@neuraiproject/neurai-assets` selects UTXOs and produces an unsigned `rawTx`) and sign + broadcast (this wallet derives the witness and submits). To keep round-trip count low against remote / public RPC endpoints, the wallet:
 
 - reuses the UTXOs that the build phase already fetched (`result.utxos`) instead of re-querying `getaddressutxos` / `getaddressmempool` before signing — saves 4-5 RPC calls per op.
-- relies on `@neuraiproject/neurai-assets ≥ 1.3.1`, which caches `estimatesmartfee` for the lifetime of a single build (the rate is stable for that window) — saves 1 more.
+- relies on `@neuraiproject/neurai-assets ≥ 1.3.2`, which (a) caches `estimatesmartfee` for the lifetime of a single build — saves 1 more RPC, and (b) sends `asset_quantity` as the user-facing display value so the daemon's own `AmountFromValue` does the 10⁸ scaling exactly once (1.2.2/1.3.1 pre-multiplied locally and the chain inflated the result by another factor of 10⁸ — fixed in 1.3.2).
 
 If `result.utxos` ever lacks the `script` field (older `neurai-assets` releases or unusual code paths), the wallet falls back to a fresh fetch automatically — slower path, but always correct.
 
@@ -342,18 +342,23 @@ await wallet.issueDepin({
 
 ### Reissue
 
+`quantity` is the additional supply in **user-facing display units** — exactly
+what the user types in the UI. Decimals (`units`) cannot be changed on
+reissue; they are inherited from the asset's on-chain metadata, so don't pass
+them here.
+
 ```js
 await wallet.reissue({
   assetName: "MYTOKEN",
-  quantity: 500_000,        // additional supply
-  units: 2,
-  reissuable: true,
+  quantity: 500_000,        // additional supply (display tokens)
+  reissuable: true,         // false to permanently lock supply
+  ipfsHash: undefined,      // optional new IPFS metadata
 });
 
 await wallet.reissueRestricted({
   assetName: "$STOCK",
   quantity: 250_000,
-  verifierString: "#KYC",   // optional new verifier
+  verifierString: "#KYC",   // optional new verifier expression
 });
 ```
 
