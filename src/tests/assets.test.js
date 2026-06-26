@@ -39,6 +39,23 @@ it("Convenience shortcuts on Wallet delegate to wallet.assets", async () => {
   const wallet = await crazyCatWalletPromise;
   expect(wallet.issueRoot).to.be.a("function");
   expect(wallet.reissue).to.be.a("function");
+  expect(wallet.transferAsset).to.be.a("function");
   expect(wallet.tagAddresses).to.be.a("function");
   expect(wallet.freezeAddresses).to.be.a("function");
+});
+
+it("wallet.assets.transfer exists (neurai-assets >= 1.3.3)", async () => {
+  const wallet = await crazyCatWalletPromise;
+  expect(wallet.assets.transfer).to.be.a("function");
+});
+
+it("wallet.assets.transfer validates recipients", async () => {
+  const wallet = await crazyCatWalletPromise;
+  let threw = false;
+  try {
+    await wallet.assets.transfer({ assetName: BUTTER, recipients: [] });
+  } catch (e) {
+    threw = true;
+  }
+  expect(threw).to.equal(true);
 });

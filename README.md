@@ -164,6 +164,11 @@ const assetTx = await wallet.send({
 console.log("Asset tx:", assetTx.transactionId);
 ```
 
+> **DePIN (`&`) assets:** don't use `send` / `sendMany` for them — they are
+> soulbound and require the owner token to be spent and returned in the same
+> transaction. Use [`wallet.transferAsset`](#transfer) instead, which handles
+> that automatically.
+
 ### Drain the wallet — `sendMax`
 
 Pass `sendMax: true` to send the entire base-currency (XNA) balance to a
@@ -284,7 +289,7 @@ All return an `AssetOpResult`:
 Internally, every asset op runs in two phases — build (`@neuraiproject/neurai-assets` selects UTXOs and produces an unsigned `rawTx`) and sign + broadcast (this wallet derives the witness and submits). To keep round-trip count low against remote / public RPC endpoints, the wallet:
 
 - reuses the UTXOs that the build phase already fetched (`result.utxos`) instead of re-querying `getaddressutxos` / `getaddressmempool` before signing — saves 4-5 RPC calls per op.
-- relies on `@neuraiproject/neurai-assets ≥ 1.3.2`, which (a) caches `estimatesmartfee` for the lifetime of a single build — saves 1 more RPC, and (b) sends `asset_quantity` as the user-facing display value so the daemon's own `AmountFromValue` does the 10⁸ scaling exactly once (1.2.2/1.3.1 pre-multiplied locally and the chain inflated the result by another factor of 10⁸ — fixed in 1.3.2).
+- relies on `@neuraiproject/neurai-assets ≥ 1.3.3` (which adds `transferAsset`, including soulbound DePIN transfers), and on `≥ 1.3.2` it (a) caches `estimatesmartfee` for the lifetime of a single build — saves 1 more RPC, and (b) sends `asset_quantity` as the user-facing display value so the daemon's own `AmountFromValue` does the 10⁸ scaling exactly once (1.2.2/1.3.1 pre-multiplied locally and the chain inflated the result by another factor of 10⁸ — fixed in 1.3.2).
 
 If `result.utxos` ever lacks the `script` field (older `neurai-assets` releases or unusual code paths), the wallet falls back to a fresh fetch automatically — slower path, but always correct.
 
@@ -359,6 +364,38 @@ await wallet.reissueRestricted({
   assetName: "$STOCK",
   quantity: 250_000,
   verifierString: "#KYC",   // optional new verifier expression
+});
+```
+
+### Transfer
+
+Transfer an existing asset to one or more recipients. `amount` is in the
+asset's **display units** (the node scales by the asset's declared decimals).
+
+```js
+await wallet.transferAsset({
+  assetName: "MYTOKEN",
+  recipients: [
+    { address: "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy", amount: 10 },
+    { address: "tD9hhanNRywGzn2mCwLkmrf3USWAD5REMA", amount: 2.5 },
+  ],
+});
+```
+
+For regular assets this is equivalent to `wallet.send` / `wallet.sendMany`
+with an `assetName` — use whichever fits your flow.
+
+**DePIN (`&`) assets are soulbound and *must* go through this path.** Neurai
+consensus only accepts a DePIN transfer if the same transaction spends and
+re-creates the asset's owner token (`&NAME!`); `transferAsset` does this
+automatically (the owner token is returned to your change address, so
+authority stays with you). `wallet.send` / `wallet.sendMany` do **not** add
+the owner token and would produce a transaction the network rejects.
+
+```js
+await wallet.transferAsset({
+  assetName: "DEVICE001",            // a DePIN asset
+  recipients: [{ address: "tBkQUwLYgNuQysgaqYH6F75UiNvcsA5Wmy", amount: 1 }],
 });
 ```
 

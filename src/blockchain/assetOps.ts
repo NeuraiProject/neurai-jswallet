@@ -247,6 +247,30 @@ export class WalletAssets {
     return this._exec((assets, p) => assets.reissueRestrictedAsset(p), params);
   }
 
+  // --- Transfer ---
+
+  /**
+   * Transfer an existing asset to one or more recipients.
+   *
+   * Works for any asset type. DePIN (`&`) assets are soulbound: this path
+   * automatically spends and returns the asset's owner token (`&NAME!`) so the
+   * transfer satisfies Neurai consensus — something the plain
+   * `wallet.send`/`wallet.sendMany` asset path does NOT do. Use this for DePIN
+   * transfers (and as a uniform transfer path for any other asset type).
+   *
+   * `amount` is in the asset's display units (the node scales by the asset's
+   * declared decimals). `toAddress` from {@link AssetOpExecuteOptions} is
+   * ignored here — recipients are taken from `recipients`.
+   */
+  async transfer(
+    params: {
+      assetName: string;
+      recipients: Array<{ address: string; amount: number }>;
+    } & AssetOpExecuteOptions,
+  ): Promise<AssetOpResult> {
+    return this._exec((assets, p) => assets.transferAsset(p), params);
+  }
+
   // --- Tag / untag (qualifier) ---
 
   async tagAddresses(

@@ -544,6 +544,9 @@ export class Wallet {
   reissueRestricted(params: Parameters<WalletAssets["reissueRestricted"]>[0]) {
     return this.assets.reissueRestricted(params);
   }
+  transferAsset(params: Parameters<WalletAssets["transfer"]>[0]) {
+    return this.assets.transfer(params);
+  }
   tagAddresses(params: Parameters<WalletAssets["tagAddresses"]>[0]) {
     return this.assets.tagAddresses(params);
   }
