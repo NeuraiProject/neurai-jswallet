@@ -6,7 +6,7 @@ var neuraiRpc = require('@neuraiproject/neurai-rpc');
 var NeuraiKey = require('@neuraiproject/neurai-key');
 var neuraiCreateTransaction = require('@neuraiproject/neurai-create-transaction');
 var Signer = require('@neuraiproject/neurai-sign-transaction');
-var NeuraiAssets = require('@neuraiproject/neurai-assets');
+var neuraiAssets = require('@neuraiproject/neurai-assets');
 var neuraiScripts = require('@neuraiproject/neurai-scripts');
 
 function _interopNamespaceDefault(e) {
@@ -28,6 +28,121 @@ function _interopNamespaceDefault(e) {
 
 var NeuraiKey__namespace = /*#__PURE__*/_interopNamespaceDefault(NeuraiKey);
 var neuraiScripts__namespace = /*#__PURE__*/_interopNamespaceDefault(neuraiScripts);
+
+/**
+ * Normalisation of `@neuraiproject/neurai-rpc` (>= 0.5) rejections.
+ *
+ * The rpc package rejects with plain structured objects, not `Error`
+ * instances. Three shapes exist:
+ *
+ *   1. JSON-RPC error (HTTP 200 or mapped to 4xx/5xx by the node):
+ *        { error: { code, message }, description }
+ *   2. HTTP error without a JSON-RPC body:
+ *        { statusText, status, description, error }
+ *   3. Transport failure:
+ *        { originalError, type: "ServerUnreachable", error, description }
+ *
+ * jswallet's public contract is conventional: every failure coming from the
+ * real RPC rejects as an `Error` whose `message` names the RPC method and the
+ * useful description, whose `cause` holds the original rejection, and — when
+ * the rejection carries a numeric JSON-RPC code — whose `code` property
+ * exposes it so applications can branch without inspecting `cause`.
+ *
+ * Validation/build errors that do not come from the RPC are never funnelled
+ * through here.
+ */
+/** Brand shared across bundles so a normalised error is never re-wrapped. */
+const NORMALIZED_BRAND = Symbol.for("neurai.jswallet.normalizedRpcError");
+function isNormalizedRpcError(value) {
+    return (value instanceof Error &&
+        value[NORMALIZED_BRAND] === true);
+}
+function stringifyUnknown(value) {
+    if (typeof value === "string")
+        return value;
+    try {
+        return JSON.stringify(value);
+    }
+    catch {
+        return String(value);
+    }
+}
+/**
+ * Extract a human-readable description from any of the rpc rejection shapes
+ * (or from an `Error`/string thrown by other layers).
+ */
+function describeRpcRejection(reason) {
+    if (reason instanceof Error && reason.message) {
+        return reason.message;
+    }
+    if (typeof reason === "string")
+        return reason;
+    if (reason && typeof reason === "object") {
+        const value = reason;
+        if (value.error && typeof value.error === "object") {
+            const rpcError = value.error;
+            if (rpcError.message) {
+                return rpcError.code !== undefined && rpcError.code !== null
+                    ? `${String(rpcError.message)} (code ${String(rpcError.code)})`
+                    : String(rpcError.message);
+            }
+            return stringifyUnknown(value.error);
+        }
+        if (value.error)
+            return stringifyUnknown(value.error);
+        if (value.description)
+            return stringifyUnknown(value.description);
+        if (value.status || value.statusText) {
+            return `HTTP ${String(value.status ?? "")} ${String(value.statusText ?? "")}`.trim();
+        }
+        return stringifyUnknown(reason);
+    }
+    return "Unknown RPC error";
+}
+/**
+ * Numeric JSON-RPC error code carried by shapes 1 and 2, when present.
+ * Transport/HTTP failures without a JSON-RPC body yield `undefined` — a code
+ * is never invented.
+ */
+function extractJsonRpcCode(reason) {
+    if (!reason || typeof reason !== "object")
+        return undefined;
+    const error = reason.error;
+    if (!error || typeof error !== "object")
+        return undefined;
+    const code = error.code;
+    return typeof code === "number" ? code : undefined;
+}
+/**
+ * Turn an rpc rejection into a branded `Error`. Already-normalised errors are
+ * returned unchanged so stacked wrappers (wallet rpc → asset rpc) never
+ * duplicate context or lose the JSON-RPC code.
+ */
+function normalizeRpcError(reason, context) {
+    if (isNormalizedRpcError(reason))
+        return reason;
+    const err = new Error(`${context}: ${describeRpcRejection(reason)}`);
+    err.cause = reason;
+    const code = extractJsonRpcCode(reason);
+    if (code !== undefined)
+        err.code = code;
+    err[NORMALIZED_BRAND] = true;
+    return err;
+}
+/**
+ * Wrap a raw `getRPC` client so every rejection resolves the public contract:
+ * `Error` with method context, `cause` and (when applicable) `code`.
+ */
+function wrapRpc(rpc) {
+    return async function normalizedRpc(method, params) {
+        try {
+            return await rpc(method, params);
+        }
+        catch (reason) {
+            throw normalizeRpcError(reason, `RPC ${String(method)} failed`);
+        }
+    };
+}
 
 class ValidationError extends Error {
     constructor(message) {
@@ -256,8 +371,15 @@ async function sweep(WIF, wallet, onlineMode) {
     });
     result.outputs = outputs;
     const inputs = utxosToTxInputs(UTXOs);
+    // NIP-040: the marker lookup only happens when the sweep actually moves
+    // assets; an XNA-only sweep stays marker-free.
     const built = transfers.length > 0
-        ? neuraiCreateTransaction.createStandardAssetTransferTransaction({ inputs, payments, transfers })
+        ? neuraiCreateTransaction.createStandardAssetTransferTransaction({
+            inputs,
+            payments,
+            transfers,
+            assetMarker: await wallet.resolveAssetMarker(),
+        })
         : neuraiCreateTransaction.createPaymentTransaction({ inputs, payments });
     const signedHex = signRawTransaction(wallet.network, built.rawTx, UTXOs, { [privateKey.address]: WIF });
     result.rawTransaction = signedHex;
@@ -477,10 +599,15 @@ async function buildSendManyInternal(wallet, options) {
                 valueSats: baseCurrencyChangeSats,
             });
         }
+        // NIP-040: resolved immediately before building, only when the
+        // transaction actually carries asset outputs. Pure-XNA sends never
+        // trigger this lookup.
+        const assetMarker = await wallet.resolveAssetMarker();
         const built = neuraiCreateTransaction.createStandardAssetTransferTransaction({
             inputs,
             payments: txPayments,
             transfers,
+            assetMarker,
         });
         rawTxHex = built.rawTx;
     }
@@ -585,6 +712,9 @@ async function broadcastBuilt(wallet, result) {
     return result;
 }
 
+// Named import: the package publishes `NeuraiAssets` both as default and as a
+// named export, but only the named form survives every interop (rollup CJS
+// output resolved the default import to the module namespace).
 function getAssetPackageNetwork(network) {
     if (network === "xna-legacy-test")
         return "xna-test";
@@ -592,74 +722,14 @@ function getAssetPackageNetwork(network) {
         return "xna";
     return network;
 }
-function stringifyUnknown(value) {
-    if (typeof value === "string")
-        return value;
-    try {
-        return JSON.stringify(value);
-    }
-    catch {
-        return String(value);
-    }
-}
-function describeRpcError(error) {
-    if (error instanceof Error && error.message) {
-        return error.message;
-    }
-    if (typeof error === "string")
-        return error;
-    if (error && typeof error === "object") {
-        const value = error;
-        if (value.error && typeof value.error === "object") {
-            const rpcError = value.error;
-            if (rpcError.message) {
-                return rpcError.code
-                    ? `${String(rpcError.message)} (code ${String(rpcError.code)})`
-                    : String(rpcError.message);
-            }
-            return stringifyUnknown(value.error);
-        }
-        if (value.error)
-            return stringifyUnknown(value.error);
-        if (value.description)
-            return stringifyUnknown(value.description);
-        if (value.status || value.statusText) {
-            return `HTTP ${String(value.status ?? "")} ${String(value.statusText ?? "")}`.trim();
-        }
-        return stringifyUnknown(error);
-    }
-    return "Unknown RPC error";
-}
-function normalizeAssetRpcQuantities(value) {
-    if (Array.isArray(value)) {
-        return value.map((item) => normalizeAssetRpcQuantities(item));
-    }
-    if (!value || typeof value !== "object")
-        return value;
-    const input = value;
-    const output = {};
-    for (const [key, child] of Object.entries(input)) {
-        // neurai-assets currently emits asset_quantity scaled by 1e8; the node RPC
-        // expects raw units scaled by the asset's declared decimals.
-        if (key === "asset_quantity" &&
-            typeof child === "number" &&
-            typeof input.units === "number") {
-            output[key] = Math.round(child / Math.pow(10, 8 - input.units));
-            continue;
-        }
-        output[key] = normalizeAssetRpcQuantities(child);
-    }
-    return output;
-}
-function normalizeAssetRpcParams(method, params) {
-    if (method !== "createrawtransaction" || params.length < 2)
-        return params;
-    return [params[0], normalizeAssetRpcQuantities(params[1]), ...params.slice(2)];
-}
+// `asset_quantity` reaches createrawtransaction untouched: neurai-assets
+// >= 1.3.2 emits the user-facing display amount and the daemon scales it via
+// AmountFromValue. The old jswallet-side rescaling (÷10^(8-units)) double-
+// compensated and zeroed the quantity of any units<8 issue/reissue.
 function createAssetRpc(wallet) {
     return async (method, p) => {
         try {
-            const params = normalizeAssetRpcParams(method, p ?? []);
+            const params = p ?? [];
             const result = await wallet.rpc(method, params);
             if (method === "createrawtransaction" && !result) {
                 throw new Error("createrawtransaction returned an empty result");
@@ -667,7 +737,10 @@ function createAssetRpc(wallet) {
             return result;
         }
         catch (error) {
-            throw new Error(`RPC ${method} failed: ${describeRpcError(error)}`);
+            // wallet.rpc rejections are already normalised Errors and pass through
+            // unchanged (message and JSON-RPC code intact); only local failures
+            // like the empty-createrawtransaction check gain this context.
+            throw normalizeRpcError(error, `RPC ${method} failed`);
         }
     };
 }
@@ -677,7 +750,7 @@ class WalletAssets {
     constructor(wallet) {
         this.wallet = wallet;
         const rpc = (method, params) => this.wallet.rpc(method, params ?? []);
-        this.queries = new NeuraiAssets.AssetQueries(rpc);
+        this.queries = new neuraiAssets.AssetQueries(rpc);
     }
     // --- Asset issuance ---
     async issueRoot(params) {
@@ -748,18 +821,30 @@ class WalletAssets {
         const broadcast = params.broadcast !== false;
         const toAddress = params.toAddress || (await this.wallet.getReceiveAddress());
         const changeAddress = params.changeAddress || (await this.wallet.getChangeAddress());
+        // NIP-040: the wallet resolver is the single source of the marker
+        // (override → node, fail-closed). neurai-assets >= 1.4.1 keeps this
+        // config value, hands it to its builders and does not ask the node again.
+        // It governs the `localRawBuild.params.assetMarker` metadata; the
+        // broadcast `rawTx` is produced by the node via `createrawtransaction`
+        // and always carries the marker the node itself requires.
+        const assetMarker = await this.wallet.resolveAssetMarker();
         const rpc = createAssetRpc(this.wallet);
         const network = getAssetPackageNetwork(this.wallet.network);
-        const assets = new NeuraiAssets(rpc, {
+        const assets = new neuraiAssets.NeuraiAssets(rpc, {
             network,
             addresses: this.wallet.getAddresses(),
             changeAddress,
             toAddress,
+            assetMarker,
         });
         const opParams = { ...params };
         delete opParams.broadcast;
         delete opParams.toAddress;
         delete opParams.changeAddress;
+        // Sealed single source: neurai-assets gives per-operation params
+        // precedence over config, so a caller-injected marker must never reach
+        // the operation params.
+        delete opParams.assetMarker;
         const result = await op(assets, {
             ...opParams,
             toAddress,
@@ -896,10 +981,15 @@ function getSigningMaterial(addressObject) {
     return addressObject.privateKey;
 }
 class Wallet {
-    rpc = neuraiRpc.getRPC("anonymous", "anonymous", URL_NEURAI_MAINNET);
+    rpc = wrapRpc(neuraiRpc.getRPC("anonymous", "anonymous", URL_NEURAI_MAINNET));
     _mnemonic = "";
     _passphrase = "";
     network = "xna";
+    /**
+     * NIP-040 marker override from `IOptions.assetMarker`. `undefined` means
+     * "ask the node per build" (see {@link resolveAssetMarker}).
+     */
+    assetMarker = undefined;
     addressObjects = [];
     receiveAddress = "";
     changeAddress = "";
@@ -960,6 +1050,14 @@ class Wallet {
         if (!options.mnemonic) {
             throw Error("option.mnemonic is mandatory");
         }
+        if (options.assetMarker !== undefined &&
+            options.assetMarker !== "rvn" &&
+            options.assetMarker !== "xna") {
+            throw new ValidationError(`Invalid options.assetMarker: ${String(options.assetMarker)} (expected 'rvn' or 'xna', the value of getblockchaininfo.asset_marker)`);
+        }
+        // Always assign — re-initialising an instance without an override must
+        // not keep the previous one.
+        this.assetMarker = options.assetMarker;
         if (options.network === "xna-test" ||
             options.network === "xna-legacy-test" ||
             options.network === "xna-pq-test") {
@@ -972,7 +1070,7 @@ class Wallet {
             this.network = options.network;
             this.setBaseCurrency(getBaseCurrencyByNetwork(options.network));
         }
-        this.rpc = neuraiRpc.getRPC(username, password, url);
+        this.rpc = wrapRpc(neuraiRpc.getRPC(username, password, url));
         this._mnemonic = options.mnemonic;
         this._passphrase = options.passphrase || "";
         //Generating the hd key is slow, so we re-use the object
@@ -1035,6 +1133,49 @@ class Wallet {
                     false === (await this.hasHistory(tempAddresses));
             }
         }
+    }
+    /**
+     * NIP-040 marker for locally built asset outputs, resolved fail-closed:
+     *
+     *   1. `IOptions.assetMarker` (wallet-level override) — validated, no RPC.
+     *   2. `getblockchaininfo.asset_marker` from the wallet's node — the value
+     *      the node requires for the next block candidate.
+     *   3. `'rvn'` only when the call succeeded but the field is absent or
+     *      `null` (nodes that predate NIP-040).
+     *
+     * A rejected/unreachable `getblockchaininfo` propagates as `Error` — it is
+     * never converted into `'rvn'`, because that could silently produce a
+     * consensus-invalid transaction on a post-NIP-040 chain. There is no cache:
+     * the marker is asked for again on every build that contains asset outputs,
+     * so a long-lived wallet keeps working across the activation crossover.
+     */
+    async resolveAssetMarker() {
+        const override = this.assetMarker;
+        if (override !== undefined) {
+            if (override !== "rvn" && override !== "xna") {
+                throw new ValidationError(`Invalid assetMarker override: ${String(override)} (expected 'rvn' or 'xna', the value of getblockchaininfo.asset_marker)`);
+            }
+            return override;
+        }
+        let info;
+        try {
+            info = await this.rpc(neuraiRpc.methods.getblockchaininfo, []);
+        }
+        catch (reason) {
+            // wallet.rpc is normally wrapped already; normalizeRpcError leaves
+            // branded errors untouched and converts raw rejections (e.g. from an
+            // application-injected rpc) into the same Error contract.
+            throw normalizeRpcError(reason, "RPC getblockchaininfo failed");
+        }
+        const marker = info
+            ?.asset_marker;
+        if (marker === undefined || marker === null) {
+            return "rvn";
+        }
+        if (marker === "rvn" || marker === "xna") {
+            return marker;
+        }
+        throw new Error(`Node reported an unknown getblockchaininfo.asset_marker: ${String(marker)} (expected 'rvn' or 'xna')`);
     }
     async hasHistory(addresses) {
         const includeAssets = true;

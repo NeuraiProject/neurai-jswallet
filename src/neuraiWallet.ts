@@ -13,6 +13,7 @@ import {
   SweepResult,
 } from "./Types";
 
+import { normalizeRpcError, wrapRpc } from "./rpcErrors";
 import { sweep } from "./blockchain/sweep";
 import {
   broadcastBuilt,
@@ -61,10 +62,15 @@ function getSigningMaterial(addressObject: IAddressMetaData) {
 }
 
 export class Wallet {
-  rpc = getRPC("anonymous", "anonymous", URL_NEURAI_MAINNET);
+  rpc = wrapRpc(getRPC("anonymous", "anonymous", URL_NEURAI_MAINNET));
   _mnemonic = "";
   _passphrase = "";
   network: ChainType = "xna";
+  /**
+   * NIP-040 marker override from `IOptions.assetMarker`. `undefined` means
+   * "ask the node per build" (see {@link resolveAssetMarker}).
+   */
+  assetMarker: "rvn" | "xna" | undefined = undefined;
   addressObjects: Array<IAddressMetaData> = [];
   receiveAddress = "";
   changeAddress = "";
@@ -129,6 +135,18 @@ export class Wallet {
       throw Error("option.mnemonic is mandatory");
     }
     if (
+      options.assetMarker !== undefined &&
+      options.assetMarker !== "rvn" &&
+      options.assetMarker !== "xna"
+    ) {
+      throw new ValidationError(
+        `Invalid options.assetMarker: ${String(options.assetMarker)} (expected 'rvn' or 'xna', the value of getblockchaininfo.asset_marker)`,
+      );
+    }
+    // Always assign — re-initialising an instance without an override must
+    // not keep the previous one.
+    this.assetMarker = options.assetMarker;
+    if (
       options.network === "xna-test" ||
       options.network === "xna-legacy-test" ||
       options.network === "xna-pq-test"
@@ -144,7 +162,7 @@ export class Wallet {
       this.setBaseCurrency(getBaseCurrencyByNetwork(options.network));
     }
 
-    this.rpc = getRPC(username, password, url);
+    this.rpc = wrapRpc(getRPC(username, password, url));
     this._mnemonic = options.mnemonic;
     this._passphrase = options.passphrase || "";
 
@@ -227,6 +245,55 @@ export class Wallet {
       }
     }
   }
+  /**
+   * NIP-040 marker for locally built asset outputs, resolved fail-closed:
+   *
+   *   1. `IOptions.assetMarker` (wallet-level override) — validated, no RPC.
+   *   2. `getblockchaininfo.asset_marker` from the wallet's node — the value
+   *      the node requires for the next block candidate.
+   *   3. `'rvn'` only when the call succeeded but the field is absent or
+   *      `null` (nodes that predate NIP-040).
+   *
+   * A rejected/unreachable `getblockchaininfo` propagates as `Error` — it is
+   * never converted into `'rvn'`, because that could silently produce a
+   * consensus-invalid transaction on a post-NIP-040 chain. There is no cache:
+   * the marker is asked for again on every build that contains asset outputs,
+   * so a long-lived wallet keeps working across the activation crossover.
+   */
+  async resolveAssetMarker(): Promise<"rvn" | "xna"> {
+    const override = this.assetMarker;
+    if (override !== undefined) {
+      if (override !== "rvn" && override !== "xna") {
+        throw new ValidationError(
+          `Invalid assetMarker override: ${String(override)} (expected 'rvn' or 'xna', the value of getblockchaininfo.asset_marker)`,
+        );
+      }
+      return override;
+    }
+
+    let info: unknown;
+    try {
+      info = await this.rpc(methods.getblockchaininfo, []);
+    } catch (reason) {
+      // wallet.rpc is normally wrapped already; normalizeRpcError leaves
+      // branded errors untouched and converts raw rejections (e.g. from an
+      // application-injected rpc) into the same Error contract.
+      throw normalizeRpcError(reason, "RPC getblockchaininfo failed");
+    }
+
+    const marker = (info as { asset_marker?: unknown } | null | undefined)
+      ?.asset_marker;
+    if (marker === undefined || marker === null) {
+      return "rvn";
+    }
+    if (marker === "rvn" || marker === "xna") {
+      return marker;
+    }
+    throw new Error(
+      `Node reported an unknown getblockchaininfo.asset_marker: ${String(marker)} (expected 'rvn' or 'xna')`,
+    );
+  }
+
   async hasHistory(addresses: Array<string>): Promise<boolean> {
     const includeAssets = true;
     const obj = {

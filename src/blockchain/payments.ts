@@ -333,10 +333,15 @@ async function buildSendManyInternal(
         valueSats: baseCurrencyChangeSats,
       });
     }
+    // NIP-040: resolved immediately before building, only when the
+    // transaction actually carries asset outputs. Pure-XNA sends never
+    // trigger this lookup.
+    const assetMarker = await wallet.resolveAssetMarker();
     const built = createStandardAssetTransferTransaction({
       inputs,
       payments: txPayments,
       transfers,
+      assetMarker,
     });
     rawTxHex = built.rawTx;
   } else {

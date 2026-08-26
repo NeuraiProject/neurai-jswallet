@@ -255,6 +255,59 @@ await wallet.sendMany({
 });
 ```
 
+## NIP-040 asset marker (0.15.0)
+
+[NIP-040](https://github.com/NeuraiProject/NIPs) replaces the Ravencoin-inherited
+`rvn` bytes at the start of every asset script payload with `xna`. On testnet
+the change is active (block 303000); after activation the node rejects locally
+built asset transactions that still carry `rvn`
+(`bad-txns-legacy-asset-marker-after-nip040`). Mainnet activation is not yet
+scheduled.
+
+The wallet never guesses chain state. Before building any transaction that
+contains asset outputs (`send`/`sendMany` of an asset, `sweep` with assets,
+`wallet.assets.*`), it resolves the marker with
+`wallet.resolveAssetMarker()`:
+
+1. `IOptions.assetMarker`, when the wallet was created with an override — no
+   RPC call is made.
+2. Otherwise `getblockchaininfo.asset_marker` from the wallet's node (the
+   marker the node requires for the next block).
+3. `'rvn'` only when the call succeeded but the field is absent or `null`
+   (nodes that predate NIP-040).
+
+The resolution is **fail-closed**: if `getblockchaininfo` is rejected or
+unreachable, the build rejects with an `Error` instead of silently emitting a
+possibly consensus-invalid `rvn` transaction. There is no cache — a wallet
+that lives across the activation crossover keeps producing valid
+transactions. Pure XNA payments never trigger the lookup.
+
+```js
+// Normal use: no option needed, the node dictates the marker.
+const wallet = await NeuraiWallet.createInstance({ mnemonic, network: "xna-test" });
+
+// Explicit override (e.g. deterministic tests, air-gapped signing flows):
+const pinned = await NeuraiWallet.createInstance({
+  mnemonic,
+  network: "xna-test",
+  assetMarker: "xna", // 'rvn' | 'xna' — skips the getblockchaininfo lookup
+});
+```
+
+Scope of the override:
+
+- It is **wallet-level only** (`IOptions.assetMarker`); per-operation
+  parameters cannot override it — an `assetMarker` passed inside a
+  `wallet.assets.*` operation's params is stripped.
+- It governs the raw transactions this library builds locally (payments,
+  sweeps) and the `raw.localRawBuild.params.assetMarker` reconstruction
+  metadata of `wallet.assets.*` results.
+- It does **not** rewrite `AssetOpResult.rawTx`: that raw is produced by the
+  node via `createrawtransaction` and already carries the marker the node
+  itself requires.
+- It does not make building offline: UTXO discovery, mempool checks and fee
+  estimation still use the RPC as before.
+
 ## Asset operations
 
 The wallet exposes a full asset toolkit through `wallet.assets` — and as
@@ -292,6 +345,13 @@ Internally, every asset op runs in two phases — build (`@neuraiproject/neurai-
 - relies on `@neuraiproject/neurai-assets ≥ 1.3.3` (which adds `transferAsset`, including soulbound DePIN transfers), and on `≥ 1.3.2` it (a) caches `estimatesmartfee` for the lifetime of a single build — saves 1 more RPC, and (b) sends `asset_quantity` as the user-facing display value so the daemon's own `AmountFromValue` does the 10⁸ scaling exactly once (1.2.2/1.3.1 pre-multiplied locally and the chain inflated the result by another factor of 10⁸ — fixed in 1.3.2).
 
 If `result.utxos` ever lacks the `script` field (older `neurai-assets` releases or unusual code paths), the wallet falls back to a fresh fetch automatically — slower path, but always correct.
+
+> **Fixed in 0.15.0:** `asset_quantity` now reaches `createrawtransaction`
+> untouched. Since `neurai-assets` 1.3.2 emits the user-facing display amount
+> (the daemon scales it via `AmountFromValue`), the old jswallet-side
+> rescaling (÷10^(8−units)) double-compensated and zeroed the quantity of any
+> issue/reissue with `units < 8` — the node rejected it with
+> `Invalid parameter: asset amount can't be equal to or less than zero`.
 
 Net effect: an `issueRoot` from a PQ address went from ~12 RPC round trips to ~5 in this version. Latency improvement scales linearly with your RPC RTT.
 
@@ -553,6 +613,7 @@ interface IOptions {
   rpc_password?: string;
   minAmountOfAddresses?: number;   // pre-derive at least N addresses on init
   offlineMode?: boolean;           // skip every RPC call during init/address selection
+  assetMarker?: "rvn" | "xna";     // NIP-040 override — see "NIP-040 asset marker"
 }
 ```
 
@@ -588,6 +649,22 @@ const blockhash = await wallet.rpc("getbestblockhash", []);
 const block = await wallet.rpc("getblock", [blockhash]);
 console.log(block);
 ```
+
+### RPC error contract (0.15.0)
+
+`@neuraiproject/neurai-rpc` ≥ 0.5 rejects with plain structured objects.
+This wallet normalises every failure coming from the real RPC — including
+`wallet.rpc` itself — into a conventional `Error`:
+
+- `message` names the RPC method and keeps the node's description, e.g.
+  `RPC sendrawtransaction failed: bad-txns-legacy-asset-marker-after-nip040 (code -26)`.
+- `cause` holds the original rejection object untouched.
+- `code` carries the numeric JSON-RPC error code when the node sent one, so
+  applications can branch without digging through `cause`. HTTP or transport
+  failures without a JSON-RPC code never invent one.
+
+Validation and build errors raised locally (e.g. `ValidationError`,
+`InsufficientFundsError`) are not funnelled through this normalisation.
 
 ## Use from a browser via `<script>`
 

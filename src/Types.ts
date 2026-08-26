@@ -289,6 +289,18 @@ export interface IOptions {
   rpc_url?: string;
   passphrase?: string;
   offlineMode?: boolean;
+  /**
+   * NIP-040 asset payload marker override (`'rvn'` | `'xna'`).
+   *
+   * When set, the wallet skips the `getblockchaininfo.asset_marker` lookup
+   * and stamps this marker on every locally built asset output (sends,
+   * sweeps and the `localRawBuild` metadata of `wallet.assets.*`). Leave
+   * unset to ask the node before each build that contains asset outputs —
+   * fail-closed: an RPC failure rejects instead of silently falling back to
+   * `'rvn'`, and only a successful reply without the field (nodes that
+   * predate NIP-040) resolves to `'rvn'`.
+   */
+  assetMarker?: "rvn" | "xna";
 }
 
 export interface IMempoolEntry {

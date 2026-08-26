@@ -84,9 +84,16 @@ export async function sweep(
   result.outputs = outputs;
 
   const inputs = utxosToTxInputs(UTXOs);
+  // NIP-040: the marker lookup only happens when the sweep actually moves
+  // assets; an XNA-only sweep stays marker-free.
   const built =
     transfers.length > 0
-      ? createStandardAssetTransferTransaction({ inputs, payments, transfers })
+      ? createStandardAssetTransferTransaction({
+          inputs,
+          payments,
+          transfers,
+          assetMarker: await wallet.resolveAssetMarker(),
+        })
       : createPaymentTransaction({ inputs, payments });
 
   const signedHex = signRawTransaction(

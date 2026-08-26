@@ -2,6 +2,7 @@
 *.js
 package-lock.json
 yarn.lock
+tmp
 
 # Logs
 logs
