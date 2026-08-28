@@ -2,10 +2,20 @@
  * Deterministic NIP-040 tests for wallet.assets.* (plan §4.3).
  *
  * The marker the wallet resolves travels as `config.assetMarker` into
- * `neurai-assets` >= 1.4.1 and governs the reconstruction metadata
- * `result.raw.localRawBuild.params.assetMarker`. It never modifies
- * `result.rawTx`: that raw is produced by the node via `createrawtransaction`
- * and carries the marker the node itself chose.
+ * `neurai-assets` and governs the reconstruction metadata
+ * `result.raw.localRawBuild.params.assetMarker`.
+ *
+ * Where the broadcast raw comes from depends on the operation, and REISSUE
+ * changed in `neurai-assets` 1.5.0. The node's `createrawtransaction` has no
+ * units field in its `reissue` object, so it assumes 0 and refuses any asset
+ * whose units are above zero. Since 1.5.0 the two reissue operations skip that
+ * RPC and build the raw with `createFromOperation`, reporting
+ * `buildStrategy: 'local-builder'`.
+ *
+ * That inverts the old invariant these tests pinned: for reissue the resolved
+ * marker now DOES govern the broadcast raw, and it must — the chain rejects
+ * the legacy marker past NIP-040 activation. Operations still built by the
+ * node keep carrying the marker the node chose.
  */
 const { expect } = require("chai");
 const {
@@ -52,9 +62,8 @@ async function reissueFixture({ override, blockchainInfo } = {}) {
         units: 0,
         has_ipfs: 0,
       }),
-      // The "node" builds the raw the way a real node would: from the inputs
-      // the builder selected. Content beyond the inputs is irrelevant here —
-      // what matters is that jswallet must return it untouched.
+      // Reissue must NOT reach this RPC any more: if it does, the library
+      // regressed to the node path that cannot express "keep the units".
       createrawtransaction: (params) => {
         const inputs = (params[0] || []).map((i) => ({
           txid: i.txid,
@@ -88,9 +97,13 @@ describe("wallet.assets.* NIP-040 (§4.3)", () => {
     // Exactly one lookup: the wallet resolver. neurai-assets received the
     // value via config and must not ask the node again (§4.3.4).
     expect(rpc.calls.getblockchaininfo).to.equal(1);
-    // rawTx is exactly what the node returned — the resolved marker only
-    // governs the local metadata, never the broadcast raw (§4.3.6).
-    expect(res.rawTx).to.equal(getNodeRawTx());
+    // Reissue is built locally since neurai-assets 1.5.0, so the node's
+    // createrawtransaction is never reached and the raw carries the marker
+    // the wallet resolved.
+    expect(res.raw.buildStrategy).to.equal("local-builder");
+    expect(getNodeRawTx()).to.equal(null);
+    expect(res.rawTx).to.be.a("string").and.not.equal("");
+    expect(res.rawTx).to.contain(Buffer.from("xna", "ascii").toString("hex"));
     expect(res.signedTransaction).to.be.a("string");
     expect(res.transactionId).to.equal(null); // broadcast: false
   });
