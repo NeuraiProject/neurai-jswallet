@@ -1,3 +1,5 @@
+import { assertMoneyRange, decimalToSatoshis, satoshisToDecimal, toRawInteger } from '@neuraiproject/neurai-create-transaction/amounts';
+import type { DecimalAmount, RawAmount } from '../Types';
 import Signer from "@neuraiproject/neurai-sign-transaction";
 import type {
   TxInput,
@@ -21,13 +23,17 @@ export const SATS_PER_XNA = 100_000_000;
 // and the residual is absorbed by the miner as part of the implicit fee.
 export const DUST_THRESHOLD_SATS = 546n;
 
-export function xnaToSats(xna: number): bigint {
-  // Avoid floating point drift by going through string-rounded sats
-  return BigInt(Math.round(xna * SATS_PER_XNA));
+export function xnaToSats(xna: DecimalAmount): bigint {
+  return assertMoneyRange(decimalToSatoshis(xna));
 }
 
-export function satsToXna(sats: bigint | number): number {
-  return Number(sats) / SATS_PER_XNA;
+export function satsToXna(sats: RawAmount): DecimalAmount {
+  const raw = toRawInteger(sats);
+  const abs = raw < 0n ? -raw : raw;
+  const text = satoshisToDecimal(raw);
+  return abs <= BigInt(Number.MAX_SAFE_INTEGER) ||
+    (abs % 100000000n === 0n && abs / 100000000n <= BigInt(Number.MAX_SAFE_INTEGER))
+    ? (decimalToSatoshis(String(Number(text))) === raw ? Number(text) : text) : text;
 }
 
 export function isPQAddress(address: string): boolean {
@@ -53,7 +59,7 @@ export function selectAllUTXOsByAsset(
   const result: IUTXO[] = [];
   for (const u of utxos) {
     if (u.assetName !== assetName) continue;
-    if (u.satoshis === 0) continue;
+    if (toRawInteger(u.satoshis) === 0n) continue;
     result.push(u);
   }
   return result;
@@ -66,43 +72,48 @@ export function sumUTXOSatoshis(
   let sum = 0n;
   for (const u of utxos) {
     if (u.assetName !== assetName) continue;
-    sum += BigInt(u.satoshis);
+    sum += assertMoneyRange(u.satoshis, 'UTXO satoshis');
   }
   return sum;
 }
 
-export function feeSatsFromSize(sizeKb: number, feeRate: number): bigint {
-  return BigInt(Math.round(sizeKb * feeRate * SATS_PER_XNA));
+export function feeSatsFromSize(sizeKb: number, feeRate: DecimalAmount): bigint {
+  // Size estimator returns bytes / 1024. Round the fee upward to a raw unit.
+  const bytes = Math.round(sizeKb * 1024);
+  if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Invalid transaction size');
+  const rateSats = xnaToSats(feeRate);
+  return (BigInt(bytes) * rateSats + 1023n) / 1024n;
 }
 
 export function selectUTXOs(
   utxos: IUTXO[],
   assetName: string,
-  amount: number,
+  amount: DecimalAmount,
 ): IUTXO[] {
   const result: IUTXO[] = [];
-  let sum = 0;
+  let sum = 0n;
+  const required = xnaToSats(amount);
 
   // Forced UTXOs always go in first
   for (const u of utxos) {
     if (u.forced === true && u.assetName === assetName) {
       result.push(u);
-      sum += u.satoshis / SATS_PER_XNA;
+      sum += assertMoneyRange(u.satoshis, 'UTXO satoshis');
     }
   }
 
   for (const u of utxos) {
     if (u.forced === true) continue;
     if (u.assetName !== assetName) continue;
-    if (u.satoshis === 0) continue;
-    if (sum > amount) break;
+    if (toRawInteger(u.satoshis) === 0n) continue;
+    if (sum >= required) break;
     result.push(u);
-    sum += u.satoshis / SATS_PER_XNA;
+    sum += assertMoneyRange(u.satoshis, 'UTXO satoshis');
   }
 
-  if (sum < amount) {
+  if (sum < required) {
     throw new InsufficientFundsError(
-      `You do not have ${amount} ${assetName} you only have ${sum}`,
+      `You do not have ${amount} ${assetName} you only have ${satsToXna(sum)}`,
     );
   }
   return result;
@@ -125,13 +136,14 @@ export function estimateSizeKB(
   return (baseSize + inputBytes + outputBytes) / 1024;
 }
 
-export async function getFeeRate(wallet: Wallet): Promise<number> {
+export async function getFeeRate(wallet: Wallet): Promise<DecimalAmount> {
   try {
     const confirmationTarget = 20;
     const response = (await wallet.rpc("estimatesmartfee", [
       confirmationTarget,
-    ])) as { feerate?: number; errors?: string[] };
-    if (response && !response.errors && typeof response.feerate === "number") {
+    ])) as { feerate?: DecimalAmount; errors?: string[] };
+    if (response && !response.errors && (typeof response.feerate === "number" || typeof response.feerate === "string")) {
+      xnaToSats(response.feerate);
       return response.feerate;
     }
   } catch {
@@ -145,7 +157,7 @@ export function utxosToTxInputs(utxos: IUTXO[]): TxInput[] {
 }
 
 export function paymentsToTxOutputs(
-  payments: Record<string, number>,
+  payments: Record<string, DecimalAmount>,
 ): TxPaymentOutput[] {
   return Object.entries(payments).map(([address, amountXna]) => ({
     address,
@@ -187,7 +199,7 @@ export async function broadcastSignedTransaction(
 
 export interface LoadedFunds {
   utxos: IUTXO[];
-  feeRate: number;
+  feeRate: DecimalAmount;
 }
 
 /**

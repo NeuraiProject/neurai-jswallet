@@ -19,10 +19,10 @@ export interface AssetOpResult {
   transactionId: string | null;
   rawTx: string;
   signedTransaction: string;
-  fee: number;
+  fee: number | string;
   burnAmount: number;
   changeAddress: string | null;
-  changeAmount: number | null;
+  changeAmount: number | string | null;
   inputs: Array<{ txid: string; vout: number; address: string }>;
   outputs: Array<Record<string, unknown>>;
   assetData?: Record<string, unknown>;
@@ -85,7 +85,7 @@ export class WalletAssets {
   async issueRoot(
     params: {
       assetName: string;
-      quantity: number;
+      quantity: number | string;
       units?: number;
       reissuable?: boolean;
       hasIpfs?: boolean;
@@ -98,7 +98,7 @@ export class WalletAssets {
   async issueSub(
     params: {
       assetName: string;
-      quantity: number;
+      quantity: number | string;
       units?: number;
       reissuable?: boolean;
       hasIpfs?: boolean;
@@ -111,7 +111,7 @@ export class WalletAssets {
   async issueDepin(
     params: {
       assetName: string;
-      quantity: number;
+      quantity: number | string;
       ipfsHash?: string;
       reissuable?: boolean;
     } & AssetOpExecuteOptions,
@@ -132,7 +132,7 @@ export class WalletAssets {
   async issueQualifier(
     params: {
       assetName: string;
-      quantity: number;
+      quantity: number | string;
       ipfsHash?: string;
     } & AssetOpExecuteOptions,
   ): Promise<AssetOpResult> {
@@ -142,7 +142,7 @@ export class WalletAssets {
   async issueRestricted(
     params: {
       assetName: string;
-      quantity: number;
+      quantity: number | string;
       verifierString: string;
       units?: number;
       reissuable?: boolean;
@@ -157,7 +157,7 @@ export class WalletAssets {
   async reissue(
     params: {
       assetName: string;
-      quantity: number;
+      quantity: number | string;
       units?: number;
       reissuable?: boolean;
       ipfsHash?: string;
@@ -169,7 +169,7 @@ export class WalletAssets {
   async reissueRestricted(
     params: {
       assetName: string;
-      quantity: number;
+      quantity: number | string;
       verifierString?: string;
       units?: number;
       reissuable?: boolean;
@@ -197,7 +197,7 @@ export class WalletAssets {
   async transfer(
     params: {
       assetName: string;
-      recipients: Array<{ address: string; amount: number }>;
+      recipients: Array<{ address: string; amount: number | string }>;
     } & AssetOpExecuteOptions,
   ): Promise<AssetOpResult> {
     return this._exec((assets, p) => assets.transferAsset(p), params);

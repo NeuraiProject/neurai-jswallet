@@ -689,3 +689,16 @@ extra scripts required:
 ## License
 
 MIT
+
+### Exact large amounts
+
+Pass decimal XNA/token quantities as strings, e.g. `amount: "100000000.00000001"`.
+RPC UTXO `satoshis` accepts integer strings or bigint; unsafe numeric integers are
+rejected because their lost digits cannot be recovered. Calculations use bigint.
+Balances, fees, change and output display fields return `number | string`: large
+fractional values remain exact text. Keep this text through forms and confirmations;
+do not apply `Number`, `parseFloat` or floating-point arithmetic to it. Raw signer
+amounts are units of 10^-8 XNA, not decimal XNA.
+
+The offline precision suite is `npx mocha src/tests/largeAmounts.test.js` after
+building. It creates and signs fixture transactions without broadcasting them.

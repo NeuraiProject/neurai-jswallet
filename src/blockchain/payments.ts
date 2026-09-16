@@ -1,3 +1,5 @@
+import { assertMoneyRange, satoshisToDecimal } from '@neuraiproject/neurai-create-transaction/amounts';
+import type { DecimalAmount } from '../Types';
 import {
   createPaymentTransaction,
   createStandardAssetTransferTransaction,
@@ -36,11 +38,11 @@ interface BuildResult {
   rawTxHex: string;
   signedHex: string;
   inputs: IUTXO[];
-  outputs: Record<string, number | { transfer: Record<string, number> }>;
-  fee: number;
-  baseCurrencyAmount: number;
-  baseCurrencyChange: number;
-  assetChange: number;
+  outputs: Record<string, DecimalAmount | { transfer: Record<string, DecimalAmount> }>;
+  fee: DecimalAmount;
+  baseCurrencyAmount: DecimalAmount;
+  baseCurrencyChange: DecimalAmount;
+  assetChange: DecimalAmount;
   dustAbsorbedSats: number;
   sentMax: boolean;
   walletMempool: ReturnType<Wallet["getMempool"]> extends Promise<infer T>
@@ -52,17 +54,8 @@ function isAssetTransfer(wallet: Wallet, assetName: string): boolean {
   return assetName !== wallet.baseCurrency;
 }
 
-function totalAmount(outputs: Record<string, number>): number {
-  return Object.values(outputs).reduce((t, v) => t + v, 0);
-}
-
-function sumByAsset(utxos: IUTXO[], assetName: string): number {
-  let sum = 0;
-  for (const u of utxos) {
-    if (u.assetName !== assetName) continue;
-    sum += u.satoshis / 1e8;
-  }
-  return sum;
+function totalAmount(outputs: Record<string, DecimalAmount>): bigint {
+  return assertMoneyRange(Object.values(outputs).reduce((t, v) => t + xnaToSats(v), 0n));
 }
 
 function tagForcedUTXOs(forced?: IForcedUTXO[]): IUTXO[] {
@@ -166,7 +159,7 @@ async function buildSendManyInternal(
       inputs: baseUTXOs,
       outputs: { [recipient]: amountXna },
       fee: feeXna,
-      baseCurrencyAmount: amountXna + feeXna,
+      baseCurrencyAmount: satsToXna(availableSats),
       baseCurrencyChange: 0,
       assetChange: 0,
       dustAbsorbedSats: 0,
@@ -180,15 +173,15 @@ async function buildSendManyInternal(
   // ------------------------------------------------------------------
   const amount = totalAmount(outputs);
 
-  let assetChange = 0;
+  let assetChange = 0n;
   let assetUTXOs: IUTXO[] = [];
   let baseCurrencyUTXOs: IUTXO[] = [];
-  let baseCurrencyAmount: number;
+  let baseCurrencyAmount: DecimalAmount;
   let changeAddressAsset = "";
 
   if (transferring) {
-    assetUTXOs = selectUTXOs(allUTXOs, assetName, amount);
-    assetChange = sumByAsset(assetUTXOs, assetName) - amount;
+    assetUTXOs = selectUTXOs(allUTXOs, assetName, satoshisToDecimal(amount));
+    assetChange = sumUTXOSatoshis(assetUTXOs, assetName) - amount;
 
     // For asset transfers we still need XNA UTXOs to pay the fee
     const previewSelection = selectUTXOs(allUTXOs, wallet.baseCurrency, 0.001);
@@ -196,7 +189,7 @@ async function buildSendManyInternal(
       [...assetUTXOs, ...previewSelection],
       [...toAddresses, changeAddressBaseCurrency],
     );
-    baseCurrencyAmount = previewSize * feeRate;
+    baseCurrencyAmount = satoshisToDecimal(feeSatsFromSize(previewSize, feeRate));
     baseCurrencyUTXOs = selectUTXOs(
       allUTXOs,
       wallet.baseCurrency,
@@ -212,7 +205,7 @@ async function buildSendManyInternal(
       );
     }
   } else {
-    baseCurrencyAmount = amount;
+    baseCurrencyAmount = satoshisToDecimal(amount);
     baseCurrencyUTXOs = selectUTXOs(
       allUTXOs,
       wallet.baseCurrency,
@@ -223,8 +216,8 @@ async function buildSendManyInternal(
       ...toAddresses,
       changeAddressBaseCurrency,
     ]);
-    const fee = sizeKb * feeRate;
-    baseCurrencyAmount = amount + fee;
+    const fee = feeSatsFromSize(sizeKb, feeRate);
+    baseCurrencyAmount = satoshisToDecimal(amount + fee);
     baseCurrencyUTXOs = selectUTXOs(
       allUTXOs,
       wallet.baseCurrency,
@@ -232,18 +225,22 @@ async function buildSendManyInternal(
     );
   }
 
-  const selectedUTXOs: IUTXO[] = transferring
-    ? [...assetUTXOs, ...baseCurrencyUTXOs]
-    : baseCurrencyUTXOs;
-
-  // Worst-case size — assumes a change output exists. We may drop it below.
-  const sizeKbWithChange = estimateSizeKB(
-    selectedUTXOs,
-    transferring
-      ? [...toAddresses, changeAddressBaseCurrency, changeAddressAsset]
-      : [...toAddresses, changeAddressBaseCurrency],
-  );
-  const feeSatsWithChange = feeSatsFromSize(sizeKbWithChange, feeRate);
+  // Adding inputs increases the fee. Repeat selection until those inputs
+  // cover the fee estimated for their own size (bounded by available inputs).
+  let selectedUTXOs: IUTXO[] = [];
+  let feeSatsWithChange = 0n;
+  for (let attempt = 0; attempt <= allUTXOs.length; attempt++) {
+    selectedUTXOs = [...assetUTXOs, ...baseCurrencyUTXOs];
+    feeSatsWithChange = feeSatsFromSize(estimateSizeKB(
+      selectedUTXOs,
+      transferring
+        ? [...toAddresses, changeAddressBaseCurrency, changeAddressAsset]
+        : [...toAddresses, changeAddressBaseCurrency],
+    ), feeRate);
+    const required = (transferring ? 0n : amount) + feeSatsWithChange;
+    if (sumUTXOSatoshis(baseCurrencyUTXOs, wallet.baseCurrency) >= required) break;
+    baseCurrencyUTXOs = selectUTXOs(allUTXOs, wallet.baseCurrency, satoshisToDecimal(required));
+  }
 
   // Sat-precise change. Avoids the IEEE-754 drift that previously left
   // sub-dust change UTXOs that the network rejected.
@@ -251,7 +248,7 @@ async function buildSendManyInternal(
     baseCurrencyUTXOs,
     wallet.baseCurrency,
   );
-  const amountSats = transferring ? 0n : xnaToSats(amount);
+  const amountSats = transferring ? 0n : amount;
   const tentativeChangeSats =
     baseCurrencyAvailableSats - amountSats - feeSatsWithChange;
 
@@ -283,12 +280,12 @@ async function buildSendManyInternal(
   // Compose the user-facing outputs map.
   const totalOutputs: Record<
     string,
-    number | { transfer: Record<string, number> }
+    DecimalAmount | { transfer: Record<string, DecimalAmount> }
   > = {};
   if (transferring) {
     if (assetChange > 0) {
       totalOutputs[changeAddressAsset] = {
-        transfer: { [assetName]: shortenNumber(assetChange) },
+        transfer: { [assetName]: satsToXna(assetChange) },
       };
     }
     for (const addy of toAddresses) {
@@ -323,7 +320,7 @@ async function buildSendManyInternal(
       transfers.push({
         address: changeAddressAsset,
         assetName,
-        amountRaw: xnaToSats(shortenNumber(assetChange)),
+        amountRaw: assetChange,
       });
     }
     const txPayments: TxPaymentOutput[] = [];
@@ -382,9 +379,9 @@ async function buildSendManyInternal(
     inputs: selectedUTXOs,
     outputs: totalOutputs,
     fee,
-    baseCurrencyAmount: transferring ? fee : amount + fee,
+    baseCurrencyAmount: satsToXna(amountSats + feeSats),
     baseCurrencyChange,
-    assetChange: transferring ? shortenNumber(assetChange) : 0,
+    assetChange: transferring ? satsToXna(assetChange) : 0,
     dustAbsorbedSats: Number(dustAbsorbedSats),
     sentMax: false,
     walletMempool,
@@ -394,7 +391,7 @@ async function buildSendManyInternal(
 function toSendResult(
   build: BuildResult,
   params: {
-    amount: number;
+    amount: DecimalAmount;
     assetName: string;
     transactionId?: string | null;
   },
@@ -444,7 +441,7 @@ export async function createTransactionForOptions(
   // For sendMax the user-facing "amount" is the actual amount sent
   // (computed from balance − fee), not the value passed in by the caller.
   const reportedAmount = sendMax
-    ? build.baseCurrencyAmount - build.fee
+    ? satsToXna(xnaToSats(build.baseCurrencyAmount) - xnaToSats(build.fee))
     : (options.amount ?? 0);
   return toSendResult(build, { amount: reportedAmount, assetName });
 }
@@ -457,8 +454,8 @@ export async function createSendManyForOptions(
   const build = await buildSendManyInternal(wallet, options);
   const amount =
     options.sendMax === true
-      ? build.baseCurrencyAmount - build.fee
-      : totalAmount(options.outputs);
+      ? satsToXna(xnaToSats(build.baseCurrencyAmount) - xnaToSats(build.fee))
+      : satsToXna(totalAmount(options.outputs));
   return toSendResult(build, { amount, assetName });
 }
 

@@ -1,3 +1,5 @@
+import { satsToXna } from './blockchain/txEngine';
+import { toRawInteger } from '@neuraiproject/neurai-create-transaction/amounts';
 import { getRPC, methods } from "@neuraiproject/neurai-rpc";
 import NeuraiKey from "@neuraiproject/neurai-key";
 import {
@@ -542,7 +544,7 @@ export class Wallet {
    */
   async createSendManyTransaction(options: {
     assetName?: string;
-    outputs: { [key: string]: number };
+    outputs: { [key: string]: number | string };
     wallet?: Wallet;
     forcedUTXOs?: import("./Types").IForcedUTXO[];
     forcedChangeAddressAssets?: string;
@@ -644,7 +646,7 @@ export class Wallet {
       ...mempoolEntry,
       script: out.scriptPubKey.hex,
       outputIndex: mempoolEntry.index,
-      value: mempoolEntry.satoshis / 1e8,
+      value: satsToXna(mempoolEntry.satoshis),
     };
     return utxo;
   }
@@ -672,7 +674,7 @@ export class Wallet {
     }
 
     const spendable = _mempool.filter((item) => {
-      if (item.satoshis < 0) {
+      if (toRawInteger(item.satoshis) < 0n) {
         return false;
       }
       const value = item.txid + "_" + item.index;

@@ -1,3 +1,5 @@
+export type DecimalAmount = number | string;
+export type RawAmount = number | string | bigint;
 import { Wallet } from "./neuraiWallet";
 
 export interface ISettings {
@@ -10,7 +12,7 @@ export interface ISettings {
   headline: string;
 }
 export interface ISend {
-  amount?: number;
+  amount?: DecimalAmount;
   assetName?: string;
   toAddress: string;
 
@@ -49,19 +51,19 @@ export interface IAddressDelta {
   blockindex: number;
   height: number;
   index: number;
-  satoshis: number;
+  satoshis: RawAmount;
   txid: string;
 
   prevtxid?: string;
 }
 export interface ISendManyOptions {
   assetName?: string;
-  outputs: { [key: string]: number };
+  outputs: { [key: string]: DecimalAmount };
 }
 
 export interface ISendManyTransactionOptions {
   assetName?: string;
-  outputs: { [key: string]: number };
+  outputs: { [key: string]: DecimalAmount };
   wallet: Wallet;
   /** Drain the wallet's full base-currency balance. Requires exactly one
    *  recipient and is incompatible with asset transfers. */
@@ -71,7 +73,7 @@ export interface ISendManyTransactionOptions {
   forcedChangeAddressBaseCurrency?: string;
 }
 export interface ITransactionOptions {
-  amount?: number;
+  amount?: DecimalAmount;
   assetName: string;
   toAddress: string;
   wallet: Wallet;
@@ -100,16 +102,16 @@ export type TPrivateKey = {
 export interface ISendResult {
   transactionId: string | null;
   debug: {
-    amount: number;
+    amount: DecimalAmount;
     assetName: string;
     error?: any;
-    fee: number;
+    fee: DecimalAmount;
     inputs: Array<IVout_when_creating_transactions>;
     outputs: any;
     privateKeys?: TPrivateKey;
     rawUnsignedTransaction?: string;
-    xnaAmount: number;
-    xnaChangeAmount: number;
+    xnaAmount: DecimalAmount;
+    xnaChangeAmount: DecimalAmount;
     /**
      * Sub-dust residue (sats) that would have been emitted as change but was
      * absorbed into the miner fee instead. 0 for normal transactions.
@@ -124,7 +126,7 @@ export interface ISendResult {
 }
 export interface Asset {
   name: string;
-  amount: number;
+  amount: DecimalAmount;
 }
 
 export interface IHistory {
@@ -141,9 +143,9 @@ export interface IHistoryTransaction {
 }
 export interface ITransaction {
   c_asset?: string;
-  c_amount_satoshis?: number;
+  c_amount_satoshis?: RawAmount;
   asset?: Asset;
-  amount?: number;
+  amount?: DecimalAmount;
   blockhash?: string;
   blocktime?: number;
   hex?: string;
@@ -158,7 +160,7 @@ export interface ITransaction {
   version?: number;
 }
 export interface ISendInternalProps {
-  amount: number;
+  amount: DecimalAmount;
   assetName: string;
   baseCurrency: string;
   changeAddress: string;
@@ -177,8 +179,8 @@ interface Vin {
   scriptSig: ScriptSig;
   sequence: number;
   txid: string;
-  value: number;
-  valueSat: number;
+  value: DecimalAmount;
+  valueSat: RawAmount;
   vout: number;
 }
 
@@ -193,10 +195,10 @@ export interface IVout_when_creating_transactions {
 }
 export interface IVout {
   c_index?: number;
-  value: number;
+  value: DecimalAmount;
   n: number;
   scriptPubKey: ScriptPubKey;
-  valueSat: number;
+  valueSat: RawAmount;
 }
 
 interface ScriptPubKey {
@@ -212,8 +214,8 @@ export type IBalance = BalanceRoot[] | null;
 
 export interface BalanceRoot {
   assetName: string;
-  balance: number;
-  received: number;
+  balance: RawAmount;
+  received: RawAmount;
 }
 
 export interface IValidateAddressResponse {
@@ -230,9 +232,9 @@ export interface IUTXO {
   height?: number;
   outputIndex: number;
   script: string;
-  satoshis: number;
+  satoshis: RawAmount;
   txid: string;
-  value: number;
+  value: DecimalAmount;
   //custom property
   forced?: boolean;
 }
@@ -308,7 +310,7 @@ export interface IMempoolEntry {
   assetName: string;
   txid: string;
   index: number;
-  satoshis: number;
+  satoshis: RawAmount;
   timestamp: number;
   prevtxid: string;
   prevout: number;

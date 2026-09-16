@@ -1,3 +1,5 @@
+import { assertMoneyRange } from '@neuraiproject/neurai-create-transaction/amounts';
+import type { DecimalAmount } from '../Types';
 import NeuraiKey from "@neuraiproject/neurai-key";
 import {
   createPaymentTransaction,
@@ -10,7 +12,7 @@ import { Wallet } from "../neuraiWallet";
 import { ChainType, IUTXO, SweepResult } from "../Types";
 import {
   broadcastSignedTransaction,
-  shortenNumber,
+  satsToXna,
   signRawTransaction,
   utxosToTxInputs,
   xnaToSats,
@@ -50,34 +52,34 @@ export async function sweep(
   }
 
   // Total per asset (in satoshis)
-  const balanceByAsset: Record<string, number> = {};
+  const balanceByAsset: Record<string, bigint> = {};
   for (const u of UTXOs) {
-    balanceByAsset[u.assetName] = (balanceByAsset[u.assetName] ?? 0) + u.satoshis;
+    balanceByAsset[u.assetName] = (balanceByAsset[u.assetName] ?? 0n) + assertMoneyRange(u.satoshis);
   }
 
   // Build outputs: each asset goes to a different wallet address
-  const outputs: Record<string, number | { transfer: Record<string, number> }> =
+  const outputs: Record<string, DecimalAmount | { transfer: Record<string, DecimalAmount> }> =
     {};
   const transfers: TransferOutputParams[] = [];
   const payments: TxPaymentOutput[] = [];
 
   Object.keys(balanceByAsset).forEach((assetName, index) => {
     const destination = wallet.getAddresses()[index];
-    const amount = balanceByAsset[assetName] / 1e8;
+    const amount = balanceByAsset[assetName];
 
     if (assetName === wallet.baseCurrency) {
-      const sendAmount = shortenNumber(amount - FIXED_FEE_XNA);
-      outputs[destination] = sendAmount;
+      const sendAmount = assertMoneyRange(amount - xnaToSats(FIXED_FEE_XNA));
+      outputs[destination] = satsToXna(sendAmount);
       payments.push({
         address: destination,
-        valueSats: xnaToSats(sendAmount),
+        valueSats: sendAmount,
       });
     } else {
-      outputs[destination] = { transfer: { [assetName]: amount } };
+      outputs[destination] = { transfer: { [assetName]: satsToXna(amount) } };
       transfers.push({
         address: destination,
         assetName,
-        amountRaw: BigInt(balanceByAsset[assetName]),
+        amountRaw: balanceByAsset[assetName],
       });
     }
   });

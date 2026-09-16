@@ -1,3 +1,4 @@
+import { satsToXna } from './blockchain/txEngine';
 import { methods } from "@neuraiproject/neurai-rpc";
 import { Wallet } from "./neuraiWallet";
 
@@ -12,7 +13,7 @@ export async function getAssets(wallet: Wallet, addresses: string[]) {
     obj.assetName !== wallet.baseCurrency;
     obj.value = 0;
     if (obj.balance > 0) {
-      obj.value = obj.balance / 1e8;
+      obj.value = satsToXna(obj.balance);
     }
     return obj;
   });
