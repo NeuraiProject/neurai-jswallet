@@ -240,7 +240,3 @@ export async function loadSpendableFunds(
   }
   return { utxos: unique, feeRate };
 }
-
-export function shortenNumber(value: number): number {
-  return parseFloat(value.toFixed(8));
-}

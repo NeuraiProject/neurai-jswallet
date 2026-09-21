@@ -27,7 +27,6 @@ import {
   satsToXna,
   selectAllUTXOsByAsset,
   selectUTXOs,
-  shortenNumber,
   signRawTransaction,
   sumUTXOSatoshis,
   utxosToTxInputs,
