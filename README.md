@@ -702,3 +702,16 @@ amounts are units of 10^-8 XNA, not decimal XNA.
 
 The offline precision suite is `npx mocha src/tests/largeAmounts.test.js` after
 building. It creates and signs fixture transactions without broadcasting them.
+
+### Network fee units
+
+RPC `estimatesmartfee.feerate` is XNA per **1,000 virtual bytes**, matching the
+node's `CFeeRate::GetFeePerK()`. Payment, asset-transfer and sweep estimates use
+serialized outputs (including asset payloads) and the signer's conservative
+signature sizes. Fee arithmetic uses bigint and rounds upward to a satoshi;
+for the same size and rate this is at most one satoshi above the node's integer
+truncation. Signature-size margins and absorbed dust can increase the final fee.
+
+When the node cannot provide a positive estimate, these jswallet routes use
+0.05 XNA/kB. Asset operations delegated to neurai-assets retain that library's
+0.015 XNA/kB fallback. A fallback is a local policy, not a quote from the node.

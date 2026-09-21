@@ -21,8 +21,8 @@ import {
   DUST_THRESHOLD_SATS,
   broadcastSignedTransaction,
   buildPrivateKeyMap,
-  estimateSizeKB,
-  feeSatsFromSize,
+  estimateSizeVbytes,
+  feeSatsFromVbytes,
   loadSpendableFunds,
   satsToXna,
   selectAllUTXOsByAsset,
@@ -119,8 +119,8 @@ async function buildSendManyInternal(
       );
     }
     // Size estimated WITHOUT a change output — that is what we will broadcast.
-    const sizeKb = estimateSizeKB(baseUTXOs, [recipient]);
-    const feeSats = feeSatsFromSize(sizeKb, feeRate);
+    const sizeVbytes = estimateSizeVbytes(baseUTXOs, [recipient]);
+    const feeSats = feeSatsFromVbytes(sizeVbytes, feeRate);
     const availableSats = sumUTXOSatoshis(baseUTXOs, wallet.baseCurrency);
     if (availableSats <= feeSats) {
       throw new InsufficientFundsError(
@@ -184,11 +184,11 @@ async function buildSendManyInternal(
 
     // For asset transfers we still need XNA UTXOs to pay the fee
     const previewSelection = selectUTXOs(allUTXOs, wallet.baseCurrency, 0.001);
-    const previewSize = estimateSizeKB(
+    const previewSize = estimateSizeVbytes(
       [...assetUTXOs, ...previewSelection],
       [...toAddresses, changeAddressBaseCurrency],
     );
-    baseCurrencyAmount = satoshisToDecimal(feeSatsFromSize(previewSize, feeRate));
+    baseCurrencyAmount = satoshisToDecimal(feeSatsFromVbytes(previewSize, feeRate));
     baseCurrencyUTXOs = selectUTXOs(
       allUTXOs,
       wallet.baseCurrency,
@@ -211,11 +211,11 @@ async function buildSendManyInternal(
       baseCurrencyAmount,
     );
     // refine fee based on chosen inputs
-    const sizeKb = estimateSizeKB(baseCurrencyUTXOs, [
+    const sizeVbytes = estimateSizeVbytes(baseCurrencyUTXOs, [
       ...toAddresses,
       changeAddressBaseCurrency,
     ]);
-    const fee = feeSatsFromSize(sizeKb, feeRate);
+    const fee = feeSatsFromVbytes(sizeVbytes, feeRate);
     baseCurrencyAmount = satoshisToDecimal(amount + fee);
     baseCurrencyUTXOs = selectUTXOs(
       allUTXOs,
@@ -230,10 +230,11 @@ async function buildSendManyInternal(
   let feeSatsWithChange = 0n;
   for (let attempt = 0; attempt <= allUTXOs.length; attempt++) {
     selectedUTXOs = [...assetUTXOs, ...baseCurrencyUTXOs];
-    feeSatsWithChange = feeSatsFromSize(estimateSizeKB(
+    feeSatsWithChange = feeSatsFromVbytes(estimateSizeVbytes(
       selectedUTXOs,
       transferring
-        ? [...toAddresses, changeAddressBaseCurrency, changeAddressAsset]
+        ? [...toAddresses.map(address => ({ address, assetName })), changeAddressBaseCurrency,
+          ...(assetChange > 0n ? [{ address: changeAddressAsset, assetName }] : [])]
         : [...toAddresses, changeAddressBaseCurrency],
     ), feeRate);
     const required = (transferring ? 0n : amount) + feeSatsWithChange;

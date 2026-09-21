@@ -15,10 +15,11 @@ import {
   satsToXna,
   signRawTransaction,
   utxosToTxInputs,
-  xnaToSats,
+  estimateSizeVbytes,
+  feeSatsFromVbytes,
+  getFeeRate,
+  DUST_THRESHOLD_SATS,
 } from "./txEngine";
-
-const FIXED_FEE_XNA = 0.02; // pre-broadcast estimate; user pays this from XNA balance
 
 /**
  * Sweep all UTXOs (XNA + assets) held by `WIF` into the wallet's first
@@ -63,12 +64,22 @@ export async function sweep(
   const transfers: TransferOutputParams[] = [];
   const payments: TxPaymentOutput[] = [];
 
+  const targets = Object.keys(balanceByAsset).map((assetName, index) => {
+    const address = wallet.getAddresses()[index];
+    return assetName === wallet.baseCurrency ? address : { address, assetName };
+  });
+  const fee = feeSatsFromVbytes(estimateSizeVbytes(UTXOs, targets), await getFeeRate(wallet));
+  if ((balanceByAsset[wallet.baseCurrency] ?? 0n) - fee < DUST_THRESHOLD_SATS) {
+    result.errorDescription = 'Insufficient XNA to cover the sweep fee and a spendable output';
+    return result;
+  }
+
   Object.keys(balanceByAsset).forEach((assetName, index) => {
     const destination = wallet.getAddresses()[index];
     const amount = balanceByAsset[assetName];
 
     if (assetName === wallet.baseCurrency) {
-      const sendAmount = assertMoneyRange(amount - xnaToSats(FIXED_FEE_XNA));
+      const sendAmount = assertMoneyRange(amount - fee);
       outputs[destination] = satsToXna(sendAmount);
       payments.push({
         address: destination,

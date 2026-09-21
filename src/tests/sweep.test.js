@@ -26,7 +26,7 @@ function sweptBaseUtxo() {
     address: SWEPT_ADDRESS,
     assetName: "XNA",
     script: p2pkhScript(SWEPT_ADDRESS),
-    satoshis: 100_000_000, // 1 XNA — covers the 0.02 fixed sweep fee
+    satoshis: 100_000_000, // 1 XNA — covers the estimated sweep fee
     txid: "aa".repeat(32),
     index: 0,
   });
@@ -124,6 +124,31 @@ describe("sweep NIP-040 (§4.2.5–6)", () => {
     expect(outs).to.have.length(1);
     expect(outs[0].split.assetTransfer.marker).to.equal("rvn");
     expect(rpc.calls.getblockchaininfo ?? 0).to.equal(0);
+  });
+
+  it("scales the sweep fee with the RPC rate and input count", async () => {
+    const wallet = await createOfflineWallet();
+    for (const count of [1, 12]) {
+      const baseUtxos = Array.from({ length: count }, (_, index) => ({ ...sweptBaseUtxo(), outputIndex: index }));
+      for (const rate of [0.01, 0.1]) {
+        wallet.rpc = makeStubRpc({ baseUtxos, handlers: { estimatesmartfee: () => ({ feerate: rate }) } });
+        const result = await wallet.sweep(WIF, false);
+        const tx = parseTransaction(result.rawTransaction);
+        const paid = BigInt(count) * 100000000n - tx.outputs.reduce((sum, o) => sum + o.valueSats, 0n);
+        // Worst-case legacy signatures: 149 bytes per input, plus one output.
+        expect(paid).to.equal(BigInt(10 + count * 149 + 34) * BigInt(rate * 100000));
+        expect(wallet.rpc.calls.estimatesmartfee).to.equal(1);
+        expect(wallet.rpc.calls.sendrawtransaction).to.equal(undefined);
+      }
+    }
+  });
+
+  it("reports insufficient XNA when only assets are available", async () => {
+    const wallet = await createOfflineWallet();
+    wallet.rpc = makeStubRpc({ assetUtxos: [sweptAssetUtxo("SWEEPASSET", 100000000, "bb".repeat(32), 0)] });
+    const result = await wallet.sweep(WIF, false);
+    expect(result.errorDescription).to.include("Insufficient XNA");
+    expect(result.rawTransaction).to.equal(undefined);
   });
 
   it("reports an address without funds instead of throwing", async () => {

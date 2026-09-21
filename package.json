@@ -1,6 +1,6 @@
 {
   "name": "@neuraiproject/neurai-jswallet",
-  "version": "0.15.4",
+  "version": "0.15.5",
   "description": "Neurai JavaScript wallet library",
   "type": "module",
   "main": "./dist/index.cjs",

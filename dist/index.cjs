@@ -4,9 +4,9 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 var amounts = require('@neuraiproject/neurai-create-transaction/amounts');
 var Signer = require('@neuraiproject/neurai-sign-transaction');
+var neuraiCreateTransaction = require('@neuraiproject/neurai-create-transaction');
 var neuraiRpc = require('@neuraiproject/neurai-rpc');
 var NeuraiKey = require('@neuraiproject/neurai-key');
-var neuraiCreateTransaction = require('@neuraiproject/neurai-create-transaction');
 var neuraiAssets = require('@neuraiproject/neurai-assets');
 var neuraiScripts = require('@neuraiproject/neurai-scripts');
 
@@ -43,10 +43,6 @@ class InsufficientFundsError extends Error {
     }
 }
 
-const LEGACY_INPUT_VBYTES = 148;
-const PQ_INPUT_VBYTES = 976;
-const LEGACY_OUTPUT_BYTES = 34;
-const PQ_OUTPUT_BYTES = 31;
 const DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
 // Minimum spendable change. Sub-dust outputs are rejected by the network
 // (standard 546 sats P2PKH dust threshold inherited from Bitcoin/Ravencoin).
@@ -63,12 +59,6 @@ function satsToXna(sats) {
     return abs <= BigInt(Number.MAX_SAFE_INTEGER) ||
         (abs % 100000000n === 0n && abs / 100000000n <= BigInt(Number.MAX_SAFE_INTEGER))
         ? (amounts.decimalToSatoshis(String(Number(text))) === raw ? Number(text) : text) : text;
-}
-function isPQAddress(address) {
-    return address.startsWith("nq1") || address.startsWith("tnq1");
-}
-function isPQUTXO(utxo) {
-    return utxo.script?.startsWith("5120") === true;
 }
 function utxoKey(utxo) {
     return `${utxo.txid}:${utxo.outputIndex}`;
@@ -96,13 +86,12 @@ function sumUTXOSatoshis(utxos, assetName) {
     }
     return sum;
 }
-function feeSatsFromSize(sizeKb, feeRate) {
-    // Size estimator returns bytes / 1024. Round the fee upward to a raw unit.
-    const bytes = Math.round(sizeKb * 1024);
-    if (!Number.isSafeInteger(bytes) || bytes < 0)
+function feeSatsFromVbytes(vbytes, feeRate) {
+    if (!Number.isSafeInteger(vbytes) || vbytes < 0)
         throw new Error('Invalid transaction size');
-    const rateSats = xnaToSats(feeRate);
-    return (BigInt(bytes) * rateSats + 1023n) / 1024n;
+    // RPC rates are XNA per 1,000 virtual bytes (CFeeRate::GetFeePerK).
+    // Round upward: at most one satoshi above the node's integer truncation.
+    return (BigInt(vbytes) * xnaToSats(feeRate) + 999n) / 1000n;
 }
 function selectUTXOs(utxos, assetName, amount) {
     const result = [];
@@ -132,12 +121,20 @@ function selectUTXOs(utxos, assetName, amount) {
     }
     return result;
 }
-function estimateSizeKB(inputs, outputAddresses) {
-    const hasPQInputs = inputs.some(isPQUTXO);
-    const baseSize = hasPQInputs ? 12 : 10;
-    const inputBytes = inputs.reduce((t, u) => t + (isPQUTXO(u) ? PQ_INPUT_VBYTES : LEGACY_INPUT_VBYTES), 0);
-    const outputBytes = outputAddresses.reduce((t, a) => t + (isPQAddress(a) ? PQ_OUTPUT_BYTES : LEGACY_OUTPUT_BYTES), 0);
-    return (baseSize + inputBytes + outputBytes) / 1024;
+function estimateSizeVbytes(inputs, targets) {
+    const payments = targets.filter((t) => typeof t === 'string')
+        .map(address => ({ address, valueSats: 0n }));
+    const transfers = targets.filter((t) => typeof t !== 'string')
+        .map(t => ({ ...t, amountRaw: 0n }));
+    const txInputs = utxosToTxInputs(inputs);
+    // Amounts and marker contents do not affect size. Both supported markers
+    // occupy three bytes. Serialize outputs to include asset payloads and varints.
+    const raw = transfers.length
+        ? neuraiCreateTransaction.createStandardAssetTransferTransaction({ inputs: txInputs, payments, transfers }).rawTx
+        : neuraiCreateTransaction.createPaymentTransaction({ inputs: txInputs, payments }).rawTx;
+    // The signer infers scripts from prevouts; its network argument does not
+    // affect sizing. Dummy signatures provide a conservative pre-signing size.
+    return Signer.estimateVirtualSize('xna', raw, inputs);
 }
 async function getFeeRate(wallet) {
     try {
@@ -146,8 +143,8 @@ async function getFeeRate(wallet) {
             confirmationTarget,
         ]));
         if (response && !response.errors && (typeof response.feerate === "number" || typeof response.feerate === "string")) {
-            xnaToSats(response.feerate);
-            return response.feerate;
+            if (xnaToSats(response.feerate) > 0n)
+                return response.feerate;
         }
     }
     catch {
@@ -324,7 +321,6 @@ function wrapRpc(rpc) {
     };
 }
 
-const FIXED_FEE_XNA = 0.02; // pre-broadcast estimate; user pays this from XNA balance
 /**
  * Sweep all UTXOs (XNA + assets) held by `WIF` into the wallet's first
  * addresses. Sweeping PQ private keys is not supported.
@@ -357,11 +353,20 @@ async function sweep(WIF, wallet, onlineMode) {
     const outputs = {};
     const transfers = [];
     const payments = [];
+    const targets = Object.keys(balanceByAsset).map((assetName, index) => {
+        const address = wallet.getAddresses()[index];
+        return assetName === wallet.baseCurrency ? address : { address, assetName };
+    });
+    const fee = feeSatsFromVbytes(estimateSizeVbytes(UTXOs, targets), await getFeeRate(wallet));
+    if ((balanceByAsset[wallet.baseCurrency] ?? 0n) - fee < DUST_THRESHOLD_SATS) {
+        result.errorDescription = 'Insufficient XNA to cover the sweep fee and a spendable output';
+        return result;
+    }
     Object.keys(balanceByAsset).forEach((assetName, index) => {
         const destination = wallet.getAddresses()[index];
         const amount = balanceByAsset[assetName];
         if (assetName === wallet.baseCurrency) {
-            const sendAmount = amounts.assertMoneyRange(amount - xnaToSats(FIXED_FEE_XNA));
+            const sendAmount = amounts.assertMoneyRange(amount - fee);
             outputs[destination] = satsToXna(sendAmount);
             payments.push({
                 address: destination,
@@ -444,8 +449,8 @@ async function buildSendManyInternal(wallet, options) {
             throw new InsufficientFundsError(`No ${wallet.baseCurrency} UTXOs available to spend`);
         }
         // Size estimated WITHOUT a change output — that is what we will broadcast.
-        const sizeKb = estimateSizeKB(baseUTXOs, [recipient]);
-        const feeSats = feeSatsFromSize(sizeKb, feeRate);
+        const sizeVbytes = estimateSizeVbytes(baseUTXOs, [recipient]);
+        const feeSats = feeSatsFromVbytes(sizeVbytes, feeRate);
         const availableSats = sumUTXOSatoshis(baseUTXOs, wallet.baseCurrency);
         if (availableSats <= feeSats) {
             throw new InsufficientFundsError(`Available ${satsToXna(availableSats)} ${wallet.baseCurrency} cannot cover the fee ${satsToXna(feeSats)}`);
@@ -494,8 +499,8 @@ async function buildSendManyInternal(wallet, options) {
         assetChange = sumUTXOSatoshis(assetUTXOs, assetName) - amount;
         // For asset transfers we still need XNA UTXOs to pay the fee
         const previewSelection = selectUTXOs(allUTXOs, wallet.baseCurrency, 0.001);
-        const previewSize = estimateSizeKB([...assetUTXOs, ...previewSelection], [...toAddresses, changeAddressBaseCurrency]);
-        baseCurrencyAmount = amounts.satoshisToDecimal(feeSatsFromSize(previewSize, feeRate));
+        const previewSize = estimateSizeVbytes([...assetUTXOs, ...previewSelection], [...toAddresses, changeAddressBaseCurrency]);
+        baseCurrencyAmount = amounts.satoshisToDecimal(feeSatsFromVbytes(previewSize, feeRate));
         baseCurrencyUTXOs = selectUTXOs(allUTXOs, wallet.baseCurrency, baseCurrencyAmount);
         changeAddressAsset =
             options.forcedChangeAddressAssets ||
@@ -508,11 +513,11 @@ async function buildSendManyInternal(wallet, options) {
         baseCurrencyAmount = amounts.satoshisToDecimal(amount);
         baseCurrencyUTXOs = selectUTXOs(allUTXOs, wallet.baseCurrency, baseCurrencyAmount);
         // refine fee based on chosen inputs
-        const sizeKb = estimateSizeKB(baseCurrencyUTXOs, [
+        const sizeVbytes = estimateSizeVbytes(baseCurrencyUTXOs, [
             ...toAddresses,
             changeAddressBaseCurrency,
         ]);
-        const fee = feeSatsFromSize(sizeKb, feeRate);
+        const fee = feeSatsFromVbytes(sizeVbytes, feeRate);
         baseCurrencyAmount = amounts.satoshisToDecimal(amount + fee);
         baseCurrencyUTXOs = selectUTXOs(allUTXOs, wallet.baseCurrency, baseCurrencyAmount);
     }
@@ -522,8 +527,9 @@ async function buildSendManyInternal(wallet, options) {
     let feeSatsWithChange = 0n;
     for (let attempt = 0; attempt <= allUTXOs.length; attempt++) {
         selectedUTXOs = [...assetUTXOs, ...baseCurrencyUTXOs];
-        feeSatsWithChange = feeSatsFromSize(estimateSizeKB(selectedUTXOs, transferring
-            ? [...toAddresses, changeAddressBaseCurrency, changeAddressAsset]
+        feeSatsWithChange = feeSatsFromVbytes(estimateSizeVbytes(selectedUTXOs, transferring
+            ? [...toAddresses.map(address => ({ address, assetName })), changeAddressBaseCurrency,
+                ...(assetChange > 0n ? [{ address: changeAddressAsset, assetName }] : [])]
             : [...toAddresses, changeAddressBaseCurrency]), feeRate);
         const required = (transferring ? 0n : amount) + feeSatsWithChange;
         if (sumUTXOSatoshis(baseCurrencyUTXOs, wallet.baseCurrency) >= required)

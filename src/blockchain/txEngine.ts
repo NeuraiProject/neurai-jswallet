@@ -1,6 +1,7 @@
 import { assertMoneyRange, decimalToSatoshis, satoshisToDecimal, toRawInteger } from '@neuraiproject/neurai-create-transaction/amounts';
 import type { DecimalAmount, RawAmount } from '../Types';
-import Signer from "@neuraiproject/neurai-sign-transaction";
+import Signer, { estimateVirtualSize } from "@neuraiproject/neurai-sign-transaction";
+import { createPaymentTransaction, createStandardAssetTransferTransaction } from "@neuraiproject/neurai-create-transaction";
 import type {
   TxInput,
   TxPaymentOutput,
@@ -9,10 +10,6 @@ import { Wallet } from "../neuraiWallet";
 import { ChainType, IUTXO } from "../Types";
 import { InsufficientFundsError } from "../Errors";
 
-const LEGACY_INPUT_VBYTES = 148;
-const PQ_INPUT_VBYTES = 976;
-const LEGACY_OUTPUT_BYTES = 34;
-const PQ_OUTPUT_BYTES = 31;
 const DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
 
 export const SATS_PER_XNA = 100_000_000;
@@ -77,12 +74,11 @@ export function sumUTXOSatoshis(
   return sum;
 }
 
-export function feeSatsFromSize(sizeKb: number, feeRate: DecimalAmount): bigint {
-  // Size estimator returns bytes / 1024. Round the fee upward to a raw unit.
-  const bytes = Math.round(sizeKb * 1024);
-  if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error('Invalid transaction size');
-  const rateSats = xnaToSats(feeRate);
-  return (BigInt(bytes) * rateSats + 1023n) / 1024n;
+export function feeSatsFromVbytes(vbytes: number, feeRate: DecimalAmount): bigint {
+  if (!Number.isSafeInteger(vbytes) || vbytes < 0) throw new Error('Invalid transaction size');
+  // RPC rates are XNA per 1,000 virtual bytes (CFeeRate::GetFeePerK).
+  // Round upward: at most one satoshi above the node's integer truncation.
+  return (BigInt(vbytes) * xnaToSats(feeRate) + 999n) / 1000n;
 }
 
 export function selectUTXOs(
@@ -119,21 +115,23 @@ export function selectUTXOs(
   return result;
 }
 
-export function estimateSizeKB(
+export function estimateSizeVbytes(
   inputs: IUTXO[],
-  outputAddresses: string[],
+  targets: Array<string | { address: string; assetName: string }>,
 ): number {
-  const hasPQInputs = inputs.some(isPQUTXO);
-  const baseSize = hasPQInputs ? 12 : 10;
-  const inputBytes = inputs.reduce(
-    (t, u) => t + (isPQUTXO(u) ? PQ_INPUT_VBYTES : LEGACY_INPUT_VBYTES),
-    0,
-  );
-  const outputBytes = outputAddresses.reduce(
-    (t, a) => t + (isPQAddress(a) ? PQ_OUTPUT_BYTES : LEGACY_OUTPUT_BYTES),
-    0,
-  );
-  return (baseSize + inputBytes + outputBytes) / 1024;
+  const payments = targets.filter((t): t is string => typeof t === 'string')
+    .map(address => ({ address, valueSats: 0n }));
+  const transfers = targets.filter((t): t is { address: string; assetName: string } => typeof t !== 'string')
+    .map(t => ({ ...t, amountRaw: 0n }));
+  const txInputs = utxosToTxInputs(inputs);
+  // Amounts and marker contents do not affect size. Both supported markers
+  // occupy three bytes. Serialize outputs to include asset payloads and varints.
+  const raw = transfers.length
+    ? createStandardAssetTransferTransaction({ inputs: txInputs, payments, transfers }).rawTx
+    : createPaymentTransaction({ inputs: txInputs, payments }).rawTx;
+  // The signer infers scripts from prevouts; its network argument does not
+  // affect sizing. Dummy signatures provide a conservative pre-signing size.
+  return estimateVirtualSize('xna', raw, inputs);
 }
 
 export async function getFeeRate(wallet: Wallet): Promise<DecimalAmount> {
@@ -143,8 +141,7 @@ export async function getFeeRate(wallet: Wallet): Promise<DecimalAmount> {
       confirmationTarget,
     ])) as { feerate?: DecimalAmount; errors?: string[] };
     if (response && !response.errors && (typeof response.feerate === "number" || typeof response.feerate === "string")) {
-      xnaToSats(response.feerate);
-      return response.feerate;
+      if (xnaToSats(response.feerate) > 0n) return response.feerate;
     }
   } catch {
     // Falls through to default
