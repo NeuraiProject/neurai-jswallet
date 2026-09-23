@@ -1,5 +1,5 @@
 import { assertMoneyRange } from '@neuraiproject/neurai-create-transaction/amounts';
-import type { DecimalAmount } from '../Types';
+import type { DecimalAmount } from '../Types.js';
 import NeuraiKey from "@neuraiproject/neurai-key";
 import {
   createPaymentTransaction,
@@ -8,8 +8,8 @@ import {
   type TxPaymentOutput,
 } from "@neuraiproject/neurai-create-transaction";
 
-import { Wallet } from "../neuraiWallet";
-import { ChainType, IUTXO, SweepResult } from "../Types";
+import { Wallet } from "../neuraiWallet.js";
+import { ChainType, IUTXO, SweepResult } from "../Types.js";
 import {
   broadcastSignedTransaction,
   satsToXna,
@@ -18,37 +18,52 @@ import {
   estimateSizeVbytes,
   feeSatsFromVbytes,
   getFeeRate,
-  DUST_THRESHOLD_SATS,
-} from "./txEngine";
+  dustThresholdSats,
+} from "./txEngine.js";
+import { getECDSAKeyNetwork, getLegacyKeyNetwork } from "../networks.js";
+
+/**
+ * Addresses a secp256k1 WIF can hold funds on: its Legacy P2PKH address and,
+ * for a compressed key, its strict ECDSA witness v3 address (neurai-key 5
+ * `xna` / `xna-test`). The chain of the wallet selects the WIF version byte.
+ */
+function sweepableAddresses(WIF: string, wallet: Wallet): string[] {
+  const addresses = [NeuraiKey.getAddressByWIF(getLegacyKeyNetwork(wallet.network), WIF).address];
+  try {
+    addresses.push(NeuraiKey.getAddressByWIF(getECDSAKeyNetwork(wallet.network), WIF).address);
+  } catch {
+    // Uncompressed WIF: no ECDSA witness v3 address.
+  }
+  return addresses;
+}
 
 /**
  * Sweep all UTXOs (XNA + assets) held by `WIF` into the wallet's first
- * addresses. Sweeping PQ private keys is not supported.
+ * addresses. The WIF is a secp256k1 key: its Legacy P2PKH address and its
+ * ECDSA witness v3 address are swept together. Any wallet network can be the
+ * destination, PQ ones included.
  */
 export async function sweep(
   WIF: string,
   wallet: Wallet,
   onlineMode: boolean,
 ): Promise<SweepResult> {
-  if (wallet.network === "xna-pq" || wallet.network === "xna-pq-test") {
-    throw new Error("Sweeping WIF private keys is not supported on PQ wallets");
-  }
-
-  const privateKey = NeuraiKey.getAddressByWIF(wallet.network, WIF);
+  const fromAddresses = sweepableAddresses(WIF, wallet);
   const result: SweepResult = {};
   const rpc = wallet.rpc;
+  result.fromAddress = fromAddresses[0];
 
   const baseCurrencyUTXOs = (await rpc("getaddressutxos", [
-    { addresses: [privateKey.address] },
+    { addresses: fromAddresses },
   ])) as IUTXO[];
   const assetUTXOs = (await rpc("getaddressutxos", [
-    { addresses: [privateKey.address], assetName: "*" },
+    { addresses: fromAddresses, assetName: "*" },
   ])) as IUTXO[];
   const UTXOs = assetUTXOs.concat(baseCurrencyUTXOs);
   result.UTXOs = UTXOs;
 
   if (UTXOs.length === 0) {
-    result.errorDescription = `Address ${privateKey.address} has no funds`;
+    result.errorDescription = `Address ${fromAddresses.join(" / ")} has no funds`;
     return result;
   }
 
@@ -68,8 +83,10 @@ export async function sweep(
     const address = wallet.getAddresses()[index];
     return assetName === wallet.baseCurrency ? address : { address, assetName };
   });
-  const fee = feeSatsFromVbytes(estimateSizeVbytes(UTXOs, targets), await getFeeRate(wallet));
-  if ((balanceByAsset[wallet.baseCurrency] ?? 0n) - fee < DUST_THRESHOLD_SATS) {
+  const fee = feeSatsFromVbytes(estimateSizeVbytes(UTXOs, targets, wallet.network), await getFeeRate(wallet));
+  const baseIndex = Object.keys(balanceByAsset).indexOf(wallet.baseCurrency);
+  const baseDestination = wallet.getAddresses()[Math.max(baseIndex, 0)];
+  if ((balanceByAsset[wallet.baseCurrency] ?? 0n) - fee < dustThresholdSats(baseDestination)) {
     result.errorDescription = 'Insufficient XNA to cover the sweep fee and a spendable output';
     return result;
   }
@@ -113,7 +130,7 @@ export async function sweep(
     wallet.network as ChainType,
     built.rawTx,
     UTXOs,
-    { [privateKey.address]: WIF },
+    Object.fromEntries(fromAddresses.map((address) => [address, WIF])),
   );
   result.rawTransaction = signedHex;
 

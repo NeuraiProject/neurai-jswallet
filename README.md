@@ -26,8 +26,65 @@ need extra installs:
 | Transaction signing (legacy ECDSA + ML-DSA-44 PQ) | [`@neuraiproject/neurai-sign-transaction`](https://www.npmjs.com/package/@neuraiproject/neurai-sign-transaction) |
 | RPC client | [`@neuraiproject/neurai-rpc`](https://www.npmjs.com/package/@neuraiproject/neurai-rpc) |
 
-Supported networks: `xna`, `xna-test`, `xna-legacy`, `xna-legacy-test`,
-`xna-pq` (post-quantum mainnet), `xna-pq-test` (post-quantum testnet).
+Supported networks (each one selects a chain and an address family):
+
+| Network | Addresses | Derivation | neurai-key 5 network |
+|---|---|---|---|
+| `xna` / `xna-test` | Legacy P2PKH `N…` / `t…` | `m/44'/1900'/0'/{0,1}/i` (testnet `m/44'/1'`) | `xna-legacy` / `xna-legacy-test` |
+| `xna-legacy` / `xna-legacy-test` | Legacy P2PKH, historical coin type 0 | `m/44'/0'/0'/{0,1}/i` (testnet `m/44'/1'`) | `xna-old-legacy` / `xna-legacy-test` |
+| `xna-pq` / `xna-pq-test` | generic AuthScript v1, ML-DSA-44 key, `nc1p…` / `tnc1p…` | `m_pq/100'/1900'/0'/0'/i'` (testnet `1'`) | `xna-authscript` / `xna-authscript-test` |
+| `xna-pq-strict` / `xna-pq-strict-test` | strict PQ witness v2 `pq1z…` / `tpq1z…` | `m_pq/100'/1900'/0'/0'/i'` (testnet `1'`) | `xna-pq` / `xna-pq-test` |
+| `xna-ecdsa` / `xna-ecdsa-test` | strict ECDSA witness v3 `nq1r…` / `tnq1r…` | `m/84'/1900'/0'/{0,1}/i` (testnet `m/84'/1'`) | `xna` / `xna-test` |
+
+The node only protects a witness family where it is active: today generic
+AuthScript v1 on testnet and regtest, strict PQ v2 / ECDSA v3 only on regtest.
+Use `xna` / `xna-test` (Legacy) on mainnet until activation is announced.
+
+### 0.16.0: neurai-key 5
+
+jswallet keeps its network names **and their derivations**: a wallet created
+with 0.15 derives the same keys and scriptPubKeys with 0.16, so balances do not
+move. The only visible change is the text of the `xna-pq` / `xna-pq-test`
+addresses: the node now encodes generic AuthScript v1 as `nc1p…` / `tnc1p…`
+(the same scriptPubKey as the old `nq1p…` / `tnq1p…`, which current nodes
+reject).
+
+> ⚠️ neurai-key 5 reuses some of these labels for other address types (its
+> `xna` is ECDSA witness v3, its `xna-pq` is strict PQ v2). The `key.*`
+> namespace below is neurai-key 5 itself: when you call it directly, use the
+> neurai-key network from the table, not the wallet network.
+
+New in 0.16.0:
+
+- `xna-pq-strict[-test]` and `xna-ecdsa[-test]` wallets for the strict families.
+- Change below the node's dust limit of the change address is absorbed into
+  the fee. The limit depends on the address type (546 sats Legacy, 3060 sats
+  PQ, 336 sats ECDSA); 0.15 used 546 for every type, so a PQ change between 546
+  and 3059 sats was rejected by the node.
+- `sweep` collects the Legacy **and** the ECDSA witness v3 address of the WIF,
+  and works into every wallet network, PQ ones included.
+- An unknown `network` throws instead of falling back to mainnet.
+- TypeScript declarations fixed for every consumer (TypeScript 4.7 or later):
+  - The public types (`ChainType`, `IOptions`, `ISend`, `ISendResult`, `IUTXO`,
+    `SweepResult`, `ChainConfig`, `AssetOpResult`, `RpcClient`…) are exported
+    from the package entry: `import type { IOptions } from "@neuraiproject/neurai-jswallet"`.
+  - The ESM declarations use explicit `.js` extensions, so they resolve with
+    `moduleResolution: "node16"` / `"nodenext"`, not only with bundlers.
+  - `require` has its own CommonJS declarations (`dist/index.d.cts`), so
+    CommonJS files type-check under `node16` / `nodenext` too (before:
+    `TS1471` / `TS1479`). They reference the CommonJS declarations of
+    neurai-key 5.0.2, create-transaction 0.9.1, scripts 0.9.1 and assets
+    1.7.2, hence those minimum versions: types such as `HDKey` are shared with
+    the packages, not copied.
+  - `npm run test:types` compiles ESM, CommonJS and `/browser` consumers
+    (`types-test/`) against the built declarations with `skipLibCheck: false`
+    in NodeNext, Node16 and Bundler mode. `npm run test:package` packs the
+    tarball, installs it in a temporary project with its registry
+    dependencies, compiles the consumers with the current TypeScript and with
+    4.7, loads every entry at runtime and checks that the CommonJS
+    declarations promise exactly the runtime exports (needs network).
+- Depends on neurai-key 5.0.1, create-transaction 0.9, scripts 0.9,
+  sign-transaction 3.0 and assets 1.7.
 
 ## Install
 
@@ -100,17 +157,20 @@ surface is exposed under the `key` namespace:
 ```js
 import { key } from "@neuraiproject/neurai-jswallet";
 
-// Address pair (sync, no RPC)
-const { address, WIF } = key.getAddressPair("xna-test", mnemonic, 0, 0, passphrase);
+// Address pair (sync, no RPC). neurai-key 5 networks: "xna-legacy-test" is
+// the Legacy testnet address of a `xna-test` wallet.
+const { external } = key.getAddressPair("xna-legacy-test", mnemonic, 0, 0, passphrase);
 
 // HD primitives
-const hdKey = key.getHDKey("xna-test", mnemonic, passphrase);
-const coin = key.getCoinType("xna-test");
-const derived = key.getAddressByPath("xna-test", hdKey, "m/44'/175'/0'/0/0");
+const hdKey = key.getHDKey("xna-legacy-test", mnemonic, passphrase);
+const coin = key.getCoinType("xna-legacy-test"); // 1
+const derived = key.getAddressByPath("xna-legacy-test", hdKey, `m/44'/${coin}'/0'/0/0`);
 
-// PQ-HD primitives
+// PQ-HD primitives: the same PQ key gives the generic v1 address of an
+// `xna-pq-test` wallet and the strict v2 address of an `xna-pq-strict-test` one.
 const pqHd = key.getPQHDKey("xna-pq-test", mnemonic, passphrase);
-const pqAddr = key.getPQAddressByPath("xna-pq-test", pqHd, "m_pq/100'/1'/0'/0'/0'");
+const v1 = key.getPQAuthScriptAddressByPath("xna-authscript-test", pqHd, "m_pq/100'/1'/0'/0'/0'"); // tnc1p…
+const v2 = key.getPQAddressByPath("xna-pq-test", pqHd, "m_pq/100'/1'/0'/0'/0'");                 // tpq1z…
 ```
 
 Same access from a browser bundle: `NeuraiJsWallet.key.getAddressPair(...)`.
@@ -552,8 +612,11 @@ for the full API.
 
 ## Sweep an external private key
 
-Move every UTXO held by an arbitrary WIF private key into your wallet. Only
-legacy networks are supported — sweeping PQ keys is not allowed.
+Move every UTXO held by an arbitrary WIF private key into your wallet. The WIF
+is a secp256k1 key: the funds of its Legacy P2PKH address and of its ECDSA
+witness v3 address (compressed keys only) are swept together. Any wallet
+network can receive them, PQ ones included. PQ keys cannot be swept (they have
+no WIF).
 
 ```js
 const result = await wallet.sweep("KxA0...WIF...", true /* broadcast */);
@@ -562,9 +625,12 @@ console.log(result.transactionId);
 
 ## Post-quantum wallets (PQ)
 
-`xna-pq` and `xna-pq-test` use NIP-022 PQ-HD derivation (every path level
-hardened) and ML-DSA-44 signatures. Address format is bech32m starting with
-`nq1` / `tnq1`.
+`xna-pq[-test]` and `xna-pq-strict[-test]` use NIP-022 PQ-HD derivation
+(every path level hardened) and ML-DSA-44 signatures. `xna-pq` wallets hold
+generic AuthScript v1 addresses (`nc1p…` / `tnc1p…`, the `nq1p…` / `tnq1p…` of
+0.15 re-encoded), `xna-pq-strict` wallets strict PQ witness v2 addresses
+(`pq1z…` / `tpq1z…`). Both have a single branch: receive, change and asset
+change addresses are distinct addresses of the same list.
 
 ```js
 const pq = await NeuraiWallet.createInstance({
@@ -573,14 +639,21 @@ const pq = await NeuraiWallet.createInstance({
   offlineMode: true, // skip RPC discovery — useful when the node has not yet indexed PQ
 });
 
-const addr = await pq.getReceiveAddress();    // tnq1...
+const addr = await pq.getReceiveAddress();    // tnc1p...
 const obj = pq.getAddressObjects()[0];
 console.log(obj.seedKey);                     // hex ML-DSA-44 seed
 ```
 
 > The same `wallet.send`, `wallet.createTransaction`, asset operations etc.
-> all work for PQ wallets — the signer detects the address type and produces a
-> ML-DSA-44 witness.
+> all work for PQ and ECDSA witness wallets — the signer detects the address
+> type from each input and produces the matching witness.
+
+## ECDSA witness wallets
+
+`xna-ecdsa[-test]` wallets derive strict ECDSA witness v3 addresses
+(`nq1r…` / `tnq1r…`) under `m/84'`, with receive and change branches like the
+Legacy wallets. Spends carry the fixed `[0x02, signature, compressedPubKey,
+OP_TRUE]` witness (about 70 vbytes per input).
 
 ## Passphrase support (BIP39 25th word)
 
@@ -606,7 +679,10 @@ Use cases:
 ```ts
 interface IOptions {
   mnemonic: string;
-  network?: "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test" | "xna-pq" | "xna-pq-test";
+  network?:
+    | "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test"
+    | "xna-pq" | "xna-pq-test" | "xna-pq-strict" | "xna-pq-strict-test"
+    | "xna-ecdsa" | "xna-ecdsa-test";
   passphrase?: string;
   rpc_url?: string;
   rpc_username?: string;

@@ -1,24 +1,49 @@
 import { assertMoneyRange, decimalToSatoshis, satoshisToDecimal, toRawInteger } from '@neuraiproject/neurai-create-transaction/amounts';
-import type { DecimalAmount, RawAmount } from '../Types';
-import Signer, { estimateVirtualSize } from "@neuraiproject/neurai-sign-transaction";
+import type { DecimalAmount, RawAmount } from '../Types.js';
+import Signer, {
+  estimateVirtualSize,
+  getAddressKind,
+  getScriptKind,
+} from "@neuraiproject/neurai-sign-transaction";
 import { createPaymentTransaction, createStandardAssetTransferTransaction } from "@neuraiproject/neurai-create-transaction";
 import type {
   TxInput,
   TxPaymentOutput,
 } from "@neuraiproject/neurai-create-transaction";
-import { Wallet } from "../neuraiWallet";
-import { ChainType, IUTXO } from "../Types";
-import { InsufficientFundsError } from "../Errors";
+import { Wallet } from "../neuraiWallet.js";
+import { ChainType, IUTXO } from "../Types.js";
+import { InsufficientFundsError } from "../Errors.js";
+import { getSignerNetwork } from "../networks.js";
 
 const DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
 
 export const SATS_PER_XNA = 100_000_000;
 
-// Minimum spendable change. Sub-dust outputs are rejected by the network
-// (standard 546 sats P2PKH dust threshold inherited from Bitcoin/Ravencoin).
-// When a change output would land below this, jswallet drops the output
-// and the residual is absorbed by the miner as part of the implicit fee.
+// Minimum spendable change. Sub-dust outputs are rejected by the network.
+// When a change output would land below the dust limit of its address,
+// jswallet drops the output and the residual is absorbed by the miner as
+// part of the implicit fee.
+//
+// The node's limit is dustRelayFee (3000 sat/kB) × (output size + size of the
+// input that spends it) (policy.cpp GetDustThreshold / EstimateWitnessInputVBytes):
+//   P2PKH                        34 + 148       → 546 sats
+//   AuthScript v1 / PQ v2        43 + 41 + 936  → 3060 sats (ML-DSA-44 witness)
+//   ECDSA v3                     43 + 41 + 28   → 336 sats
+/** Dust limit of a P2PKH output (the historical constant). */
 export const DUST_THRESHOLD_SATS = 546n;
+const DUST_RELAY_FEE_SATS_PER_KB = 3000n;
+const DUST_SIZE_BY_KIND: Record<string, bigint> = {
+  p2pkh: 34n + 148n,
+  authscript: 43n + 41n + 936n,
+  pq: 43n + 41n + 936n,
+  ecdsa: 43n + 41n + 28n,
+};
+
+/** Dust limit (sats) of an output paying `address`, as the node computes it. */
+export function dustThresholdSats(address: string): bigint {
+  const size = DUST_SIZE_BY_KIND[getAddressKind(address)] ?? DUST_SIZE_BY_KIND.p2pkh;
+  return (size * DUST_RELAY_FEE_SATS_PER_KB) / 1000n;
+}
 
 export function xnaToSats(xna: DecimalAmount): bigint {
   return assertMoneyRange(decimalToSatoshis(xna));
@@ -33,12 +58,20 @@ export function satsToXna(sats: RawAmount): DecimalAmount {
     ? (decimalToSatoshis(String(Number(text))) === raw ? Number(text) : text) : text;
 }
 
+/**
+ * True for the addresses whose spend carries an ML-DSA-44 witness: generic
+ * AuthScript v1 (`nc1p…`) and strict PQ v2 (`pq1z…`). `nq1…` is strict
+ * ECDSA witness v3 since neurai-key 5 and returns false.
+ */
 export function isPQAddress(address: string): boolean {
-  return address.startsWith("nq1") || address.startsWith("tnq1");
+  const kind = getAddressKind(address);
+  return kind === "authscript" || kind === "pq";
 }
 
+/** True for UTXOs locked by `OP_1` / `OP_2` AuthScript programs. */
 export function isPQUTXO(utxo: IUTXO): boolean {
-  return utxo.script?.startsWith("5120") === true;
+  const kind = getScriptKind(utxo.script ?? "");
+  return kind === "authscript" || kind === "pq";
 }
 
 export function utxoKey(utxo: { txid: string; outputIndex: number }): string {
@@ -118,6 +151,7 @@ export function selectUTXOs(
 export function estimateSizeVbytes(
   inputs: IUTXO[],
   targets: Array<string | { address: string; assetName: string }>,
+  network: ChainType = "xna",
 ): number {
   const payments = targets.filter((t): t is string => typeof t === 'string')
     .map(address => ({ address, valueSats: 0n }));
@@ -131,7 +165,7 @@ export function estimateSizeVbytes(
     : createPaymentTransaction({ inputs: txInputs, payments }).rawTx;
   // The signer infers scripts from prevouts; its network argument does not
   // affect sizing. Dummy signatures provide a conservative pre-signing size.
-  return estimateVirtualSize('xna', raw, inputs);
+  return estimateVirtualSize(getSignerNetwork(network), raw, inputs);
 }
 
 export async function getFeeRate(wallet: Wallet): Promise<DecimalAmount> {
@@ -184,7 +218,9 @@ export function signRawTransaction(
   utxos: IUTXO[],
   privateKeys: Record<string, unknown>,
 ): string {
-  return Signer.sign(network, rawTxHex, utxos, privateKeys);
+  // The signer reads the input type from each prevout script; the network
+  // only selects the chain (WIF version byte, NIP-025 rule).
+  return Signer.sign(getSignerNetwork(network), rawTxHex, utxos, privateKeys as any);
 }
 
 export async function broadcastSignedTransaction(

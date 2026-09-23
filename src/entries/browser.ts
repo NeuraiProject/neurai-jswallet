@@ -1,5 +1,6 @@
 export * from "../neuraiWallet.js";
 export { default } from "../neuraiWallet.js";
+export * from "../publicTypes.js";
 export * as scripts from "@neuraiproject/neurai-scripts";
 
 /**

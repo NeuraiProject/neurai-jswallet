@@ -1,7 +1,7 @@
-import { satsToXna } from './blockchain/txEngine';
+import { satsToXna } from './blockchain/txEngine.js';
 import { methods } from "@neuraiproject/neurai-rpc";
-import { ONE_FULL_COIN } from "./contants";
-import { Wallet } from "./neuraiWallet";
+import { ONE_FULL_COIN } from "./contants.js";
+import { Wallet } from "./neuraiWallet.js";
 
 export async function getBalance(wallet:Wallet, addresses: string[]) {
   const includeAssets = false;

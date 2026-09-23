@@ -3,9 +3,10 @@
 // output resolved the default import to the module namespace).
 import { AssetQueries, NeuraiAssets } from "@neuraiproject/neurai-assets";
 
-import { Wallet } from "../neuraiWallet";
-import { normalizeRpcError } from "../rpcErrors";
-import { ChainType, IUTXO } from "../Types";
+import { Wallet } from "../neuraiWallet.js";
+import { normalizeRpcError } from "../rpcErrors.js";
+import { getAssetPackageNetwork } from "../networks.js";
+import { ChainType, IUTXO } from "../Types.js";
 import {
   broadcastSignedTransaction,
   buildPrivateKeyMap,
@@ -13,7 +14,7 @@ import {
   loadSpendableFunds,
   signRawTransaction,
   utxoKey,
-} from "./txEngine";
+} from "./txEngine.js";
 
 export interface AssetOpResult {
   transactionId: string | null;
@@ -40,11 +41,6 @@ export interface AssetOpExecuteOptions {
 
 type RpcFn = (method: string, params?: unknown[]) => Promise<unknown> | unknown;
 
-function getAssetPackageNetwork(network: ChainType): ChainType {
-  if (network === "xna-legacy-test") return "xna-test";
-  if (network === "xna-legacy") return "xna";
-  return network;
-}
 
 // `asset_quantity` reaches createrawtransaction untouched: neurai-assets
 // >= 1.3.2 emits the user-facing display amount and the daemon scales it via

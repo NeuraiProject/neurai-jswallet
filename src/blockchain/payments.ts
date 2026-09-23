@@ -1,5 +1,5 @@
 import { assertMoneyRange, satoshisToDecimal } from '@neuraiproject/neurai-create-transaction/amounts';
-import type { DecimalAmount } from '../Types';
+import type { DecimalAmount } from '../Types.js';
 import {
   createPaymentTransaction,
   createStandardAssetTransferTransaction,
@@ -7,8 +7,8 @@ import {
   type TxPaymentOutput,
 } from "@neuraiproject/neurai-create-transaction";
 
-import { Wallet } from "../neuraiWallet";
-import { InsufficientFundsError, ValidationError } from "../Errors";
+import { Wallet } from "../neuraiWallet.js";
+import { InsufficientFundsError, ValidationError } from "../Errors.js";
 import {
   ChainType,
   IForcedUTXO,
@@ -16,9 +16,9 @@ import {
   ISendResult,
   ITransactionOptions,
   IUTXO,
-} from "../Types";
+} from "../Types.js";
 import {
-  DUST_THRESHOLD_SATS,
+  dustThresholdSats,
   broadcastSignedTransaction,
   buildPrivateKeyMap,
   estimateSizeVbytes,
@@ -31,7 +31,7 @@ import {
   sumUTXOSatoshis,
   utxosToTxInputs,
   xnaToSats,
-} from "./txEngine";
+} from "./txEngine.js";
 
 interface BuildResult {
   rawTxHex: string;
@@ -262,7 +262,7 @@ async function buildSendManyInternal(
   let feeSats: bigint;
   let dustAbsorbedSats = 0n;
 
-  if (tentativeChangeSats < DUST_THRESHOLD_SATS) {
+  if (tentativeChangeSats < dustThresholdSats(changeAddressBaseCurrency)) {
     // Below dust → drop the change output. The residue is implicitly paid
     // to the miner as part of the fee. Required for the network to accept
     // the transaction (sub-dust outputs are non-standard).

@@ -1,6 +1,6 @@
 export type DecimalAmount = number | string;
 export type RawAmount = number | string | bigint;
-import { Wallet } from "./neuraiWallet";
+import { Wallet } from "./neuraiWallet.js";
 
 export interface ISettings {
   assets?: Array<string>;
@@ -29,13 +29,29 @@ export interface ISend {
   forcedChangeAddressAssets?: string;
   forcedChangeAddressBaseCurrency?: string;
 }
+/**
+ * Wallet network. Each name selects a chain and an address family; the
+ * names and derivations of 0.15 (neurai-key 4) are kept:
+ *
+ * | network | addresses | neurai-key 5 network |
+ * |---|---|---|
+ * | `xna` / `xna-test` | Legacy `N…` / `t…`, `m/44'/1900'` (testnet `m/44'/1'`) | `xna-legacy` / `xna-legacy-test` |
+ * | `xna-legacy` / `xna-legacy-test` | Legacy, coin type 0 `m/44'/0'` (testnet `m/44'/1'`) | `xna-old-legacy` / `xna-legacy-test` |
+ * | `xna-pq` / `xna-pq-test` | generic AuthScript v1 PQ `nc1p…` / `tnc1p…` | `xna-authscript` / `xna-authscript-test` |
+ * | `xna-pq-strict` / `xna-pq-strict-test` | strict PQ v2 `pq1z…` / `tpq1z…` | `xna-pq` / `xna-pq-test` |
+ * | `xna-ecdsa` / `xna-ecdsa-test` | strict ECDSA v3 `nq1r…` / `tnq1r…`, `m/84'` | `xna` / `xna-test` |
+ */
 export type ChainType =
   | "xna"
   | "xna-test"
   | "xna-legacy"
   | "xna-legacy-test"
   | "xna-pq"
-  | "xna-pq-test";
+  | "xna-pq-test"
+  | "xna-pq-strict"
+  | "xna-pq-strict-test"
+  | "xna-ecdsa"
+  | "xna-ecdsa-test";
 export type TPrivateKeyInput =
   | string
   | {
@@ -225,6 +241,11 @@ export interface IValidateAddressResponse {
   ismine: boolean;
   iswatchonly: boolean;
   isscript: boolean;
+  /** AuthScript addresses: `witness_version` 1, 2 or 3. */
+  isauthscript?: boolean;
+  witness_version?: number;
+  family?: string;
+  commitment?: string;
 }
 export interface IUTXO {
   address: string;
@@ -248,7 +269,13 @@ export interface IAddressMetaData {
   publicKey?: string;
   privateKey: string;
   seedKey?: string;
-  keyType?: "legacy" | "pq";
+  keyType?: "legacy" | "pq" | "ecdsa";
+  /** AuthScript fields, present on witness addresses (v1 PQ, v2 PQ, v3 ECDSA). */
+  witnessVersion?: number;
+  authType?: number;
+  authDescriptor?: string;
+  commitment?: string;
+  witnessScript?: string;
 }
 export interface IUser {
   lastKnownUsedPosition?: number;
@@ -279,7 +306,13 @@ export interface IAddressMetaData {
   publicKey?: string;
   privateKey: string;
   seedKey?: string;
-  keyType?: "legacy" | "pq";
+  keyType?: "legacy" | "pq" | "ecdsa";
+  /** AuthScript fields, present on witness addresses (v1 PQ, v2 PQ, v3 ECDSA). */
+  witnessVersion?: number;
+  authType?: number;
+  authDescriptor?: string;
+  commitment?: string;
+  witnessScript?: string;
 }
 
 export interface IOptions {

@@ -1,4 +1,4 @@
-import { IUTXO } from "./Types";
+import { IUTXO } from "./Types.js";
 
 export function removeDuplicates(originalArray: IUTXO[]) {
   const uniqueArray: IUTXO[] = [];

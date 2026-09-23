@@ -1,4 +1,4 @@
-import { satsToXna } from './blockchain/txEngine';
+import { satsToXna } from './blockchain/txEngine.js';
 import { toRawInteger } from '@neuraiproject/neurai-create-transaction/amounts';
 import { getRPC, methods } from "@neuraiproject/neurai-rpc";
 import NeuraiKey from "@neuraiproject/neurai-key";
@@ -13,20 +13,22 @@ import {
   ISendResult,
   IUTXO,
   SweepResult,
-} from "./Types";
+} from "./Types.js";
 
-import { normalizeRpcError, wrapRpc } from "./rpcErrors";
-import { sweep } from "./blockchain/sweep";
+import { normalizeRpcError, wrapRpc } from "./rpcErrors.js";
+import { sweep } from "./blockchain/sweep.js";
 import {
   broadcastBuilt,
   createSendManyForOptions,
   createTransactionForOptions,
-} from "./blockchain/payments";
-import { WalletAssets } from "./blockchain/assetOps";
-import { getBaseCurrencyByNetwork } from "./getBaseCurrencyByNetwork";
-import { getBalance } from "./getBalance";
-import { ValidationError } from "./Errors";
-import { getAssets } from "./getAssets";
+} from "./blockchain/payments.js";
+import { WalletAssets } from "./blockchain/assetOps.js";
+import { getBaseCurrencyByNetwork } from "./getBaseCurrencyByNetwork.js";
+import { getBalance } from "./getBalance.js";
+import { ValidationError } from "./Errors.js";
+import { getAssets } from "./getAssets.js";
+import { getChainConfig, isPQNetwork } from "./networks.js";
+import type { ChainConfig } from "./networks.js";
 const URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
 // NIP-022 PQ-HD (neurai-key >= 4.0.0): every path level must be hardened.
@@ -34,20 +36,54 @@ const PQ_PURPOSE = 100;
 const PQ_COIN_TYPE_MAINNET = 1900;
 const PQ_COIN_TYPE_TESTNET = 1;
 const PQ_CHANGE_INDEX = 0;
+// BIP44 for Legacy, BIP84-style purpose for strict ECDSA witness v3 (neurai-key 5).
+const LEGACY_PURPOSE = 44;
+const ECDSA_PURPOSE = 84;
 
 //Avoid singleton (anti-pattern)
 //Meaning multiple instances of the wallet must be able to co-exist
 
-type PQChainType = "xna-pq" | "xna-pq-test";
-type LegacyChainType = Exclude<ChainType, PQChainType>;
-
-function isPQNetwork(network: ChainType): network is PQChainType {
-  return network === "xna-pq" || network === "xna-pq-test";
+function getPQDerivationPath(testnet: boolean, account: number, index: number) {
+  const coinType = testnet ? PQ_COIN_TYPE_TESTNET : PQ_COIN_TYPE_MAINNET;
+  return `m_pq/${PQ_PURPOSE}'/${coinType}'/${account}'/${PQ_CHANGE_INDEX}'/${index}'`;
 }
 
-function getPQDerivationPath(network: PQChainType, account: number, index: number) {
-  const coinType = network === "xna-pq" ? PQ_COIN_TYPE_MAINNET : PQ_COIN_TYPE_TESTNET;
-  return `m_pq/${PQ_PURPOSE}'/${coinType}'/${account}'/${PQ_CHANGE_INDEX}'/${index}'`;
+/**
+ * Derives the address objects of one wallet network. The HD keys are built
+ * once (seed generation is slow) and reused for every position.
+ */
+function createAddressDeriver(config: ChainConfig, mnemonic: string, passphrase: string, account: number) {
+  if (config.family === "authscript-pq" || config.family === "pq") {
+    // One PQ HD tree serves the generic v1 and the strict v2 addresses.
+    const hdKey = NeuraiKey.getPQHDKey(config.testnet ? "xna-pq-test" : "xna-pq", mnemonic, passphrase);
+    return (position: number): IAddressMetaData[] => {
+      const path = getPQDerivationPath(config.testnet, account, position);
+      const derived =
+        config.family === "pq"
+          ? NeuraiKey.getPQAddressByPath(config.keyNetwork as "xna-pq" | "xna-pq-test", hdKey, path)
+          : NeuraiKey.getPQAuthScriptAddressByPath(
+              config.keyNetwork as "xna-authscript" | "xna-authscript-test",
+              hdKey,
+              path,
+            );
+      return [{ ...derived, keyType: "pq" as const }];
+    };
+  }
+
+  const keyNetwork = config.keyNetwork as "xna" | "xna-test" | "xna-legacy" | "xna-legacy-test" | "xna-old-legacy";
+  const hdKey = NeuraiKey.getHDKey(keyNetwork, mnemonic, passphrase);
+  const coinType = NeuraiKey.getCoinType(keyNetwork);
+  const purpose = config.family === "ecdsa" ? ECDSA_PURPOSE : LEGACY_PURPOSE;
+  const keyType = config.family === "ecdsa" ? ("ecdsa" as const) : ("legacy" as const);
+  return (position: number): IAddressMetaData[] =>
+    [0, 1].map((change) => ({
+      ...NeuraiKey.getAddressByPath(
+        keyNetwork,
+        hdKey,
+        `m/${purpose}'/${coinType}'/${account}'/${change}/${position}`,
+      ),
+      keyType,
+    }));
 }
 
 function getSigningMaterial(addressObject: IAddressMetaData) {
@@ -148,11 +184,8 @@ export class Wallet {
     // Always assign — re-initialising an instance without an override must
     // not keep the previous one.
     this.assetMarker = options.assetMarker;
-    if (
-      options.network === "xna-test" ||
-      options.network === "xna-legacy-test" ||
-      options.network === "xna-pq-test"
-    ) {
+    const chainConfig = getChainConfig(options.network ?? this.network);
+    if (chainConfig.testnet) {
       url = URL_NEURAI_TESTNET;
     }
     url = options.rpc_url || url;
@@ -169,17 +202,13 @@ export class Wallet {
     this._passphrase = options.passphrase || "";
 
     //Generating the hd key is slow, so we re-use the object
-    const usingPQ = isPQNetwork(this.network);
-    const pqNetwork = usingPQ ? (this.network as PQChainType) : null;
-    const legacyNetwork = usingPQ ? null : (this.network as LegacyChainType);
-    const pqHDKey = usingPQ
-      ? NeuraiKey.getPQHDKey(pqNetwork!, this._mnemonic, this._passphrase)
-      : null;
-    const legacyHDKey = usingPQ
-      ? null
-      : NeuraiKey.getHDKey(legacyNetwork!, this._mnemonic, this._passphrase);
-    const coinType = usingPQ ? null : NeuraiKey.getCoinType(legacyNetwork!);
     const ACCOUNT = 0;
+    const deriveAddresses = createAddressDeriver(
+      chainConfig,
+      this._mnemonic,
+      this._passphrase,
+      ACCOUNT,
+    );
 
     const minAmountOfAddresses = Number.isFinite(options.minAmountOfAddresses)
       ? options.minAmountOfAddresses
@@ -191,44 +220,14 @@ export class Wallet {
       const tempAddresses = [] as string[];
 
       for (let i = 0; i < 20; i++) {
-        if (usingPQ) {
-          const pqAddress = {
-            ...NeuraiKey.getPQAddressByPath(
-              pqNetwork!,
-              pqHDKey!,
-              getPQDerivationPath(pqNetwork!, ACCOUNT, this.addressPosition)
-            ),
-            keyType: "pq" as const,
-          };
-          this.addressObjects.push(pqAddress);
-          this.addressPosition++;
-          tempAddresses.push(pqAddress.address + "");
-        } else {
-          const external = {
-            ...NeuraiKey.getAddressByPath(
-              legacyNetwork!,
-              legacyHDKey!,
-              `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`
-            ),
-            keyType: "legacy" as const,
-          };
-
-          const internal = {
-            ...NeuraiKey.getAddressByPath(
-              legacyNetwork!,
-              legacyHDKey!,
-              `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`
-            ),
-            keyType: "legacy" as const,
-          };
-
-          this.addressObjects.push(external);
-          this.addressObjects.push(internal);
-          this.addressPosition++;
-
-          tempAddresses.push(external.address + "");
-          tempAddresses.push(internal.address + "");
+        // PQ networks: one object per position (single hardened branch).
+        // Legacy / ECDSA: external then internal, interleaved, so receive and
+        // change addresses are told apart by index parity.
+        for (const addressObject of deriveAddresses(this.addressPosition)) {
+          this.addressObjects.push(addressObject);
+          tempAddresses.push(addressObject.address + "");
         }
+        this.addressPosition++;
       }
 
       if (
@@ -546,7 +545,7 @@ export class Wallet {
     assetName?: string;
     outputs: { [key: string]: number | string };
     wallet?: Wallet;
-    forcedUTXOs?: import("./Types").IForcedUTXO[];
+    forcedUTXOs?: import("./Types.js").IForcedUTXO[];
     forcedChangeAddressAssets?: string;
     forcedChangeAddressBaseCurrency?: string;
   }): Promise<ISendResult> {

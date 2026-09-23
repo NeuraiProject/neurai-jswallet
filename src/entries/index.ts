@@ -1,5 +1,6 @@
 export * from "../neuraiWallet.js";
 export { default } from "../neuraiWallet.js";
+export * from "../publicTypes.js";
 
 /**
  * Low-level script primitives (covenants, multisig, AuthScript, OP_RETURN,

@@ -1,0 +1,9 @@
+{
+  // node16 does not let CommonJS files read ESM declarations: the require
+  // condition must provide its own (dist/index.d.cts).
+  "extends": "./tsconfig.types.json",
+  "compilerOptions": {
+    "module": "Node16",
+    "moduleResolution": "Node16"
+  }
+}

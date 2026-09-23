@@ -1,6 +1,6 @@
-import { satsToXna } from './blockchain/txEngine';
+import { satsToXna } from './blockchain/txEngine.js';
 import { methods } from "@neuraiproject/neurai-rpc";
-import { Wallet } from "./neuraiWallet";
+import { Wallet } from "./neuraiWallet.js";
 
 export async function getAssets(wallet: Wallet, addresses: string[]) {
   const includeAssets = true;

@@ -43,12 +43,76 @@ class InsufficientFundsError extends Error {
     }
 }
 
+const CHAINS = {
+    xna: { family: "legacy", keyNetwork: "xna-legacy", testnet: false, keyType: "legacy", singleBranch: false },
+    "xna-test": { family: "legacy", keyNetwork: "xna-legacy-test", testnet: true, keyType: "legacy", singleBranch: false },
+    "xna-legacy": { family: "legacy", keyNetwork: "xna-old-legacy", testnet: false, keyType: "legacy", singleBranch: false },
+    "xna-legacy-test": { family: "legacy", keyNetwork: "xna-legacy-test", testnet: true, keyType: "legacy", singleBranch: false },
+    "xna-pq": { family: "authscript-pq", keyNetwork: "xna-authscript", testnet: false, keyType: "pq", singleBranch: true },
+    "xna-pq-test": { family: "authscript-pq", keyNetwork: "xna-authscript-test", testnet: true, keyType: "pq", singleBranch: true },
+    "xna-pq-strict": { family: "pq", keyNetwork: "xna-pq", testnet: false, keyType: "pq", singleBranch: true },
+    "xna-pq-strict-test": { family: "pq", keyNetwork: "xna-pq-test", testnet: true, keyType: "pq", singleBranch: true },
+    "xna-ecdsa": { family: "ecdsa", keyNetwork: "xna", testnet: false, keyType: "ecdsa", singleBranch: false },
+    "xna-ecdsa-test": { family: "ecdsa", keyNetwork: "xna-test", testnet: true, keyType: "ecdsa", singleBranch: false },
+};
+/** Every wallet network name. */
+const CHAIN_TYPES = Object.keys(CHAINS);
+/**
+ * Configuration of a wallet network. Throws on an unknown name instead of
+ * silently falling back to mainnet.
+ */
+function getChainConfig(network) {
+    const config = CHAINS[network];
+    if (!config) {
+        throw new Error(`Unknown network ${JSON.stringify(network)}. Expected one of ${CHAIN_TYPES.join(", ")}`);
+    }
+    return config;
+}
+/** True for the networks whose addresses use the native PQ tree. */
+function isPQNetwork(network) {
+    return getChainConfig(network).singleBranch;
+}
+/**
+ * The network label to hand to neurai-sign-transaction. The signer only uses
+ * its chain (WIF version byte and per-network rules), so the neurai-key 5
+ * label of the wallet's family is passed.
+ */
+function getSignerNetwork(network) {
+    return getChainConfig(network).keyNetwork;
+}
+/** neurai-key 5 network of the Legacy P2PKH address of a WIF on this chain. */
+function getLegacyKeyNetwork(network) {
+    return getChainConfig(network).testnet ? "xna-legacy-test" : "xna-legacy";
+}
+/** neurai-key 5 network of the ECDSA witness v3 address of a WIF on this chain. */
+function getECDSAKeyNetwork(network) {
+    return getChainConfig(network).testnet ? "xna-test" : "xna";
+}
+/**
+ * Chain family label for @neuraiproject/neurai-assets: `xna` / `xna-test`
+ * for Legacy wallets, `xna-pq` / `xna-pq-test` (its AuthScript label) for the
+ * witness families.
+ */
+function getAssetPackageNetwork(network) {
+    const { testnet, family } = getChainConfig(network);
+    if (family === "legacy")
+        return testnet ? "xna-test" : "xna";
+    return testnet ? "xna-pq-test" : "xna-pq";
+}
+
 const DEFAULT_FEE_RATE_XNA_PER_KB = 0.05;
-// Minimum spendable change. Sub-dust outputs are rejected by the network
-// (standard 546 sats P2PKH dust threshold inherited from Bitcoin/Ravencoin).
-// When a change output would land below this, jswallet drops the output
-// and the residual is absorbed by the miner as part of the implicit fee.
-const DUST_THRESHOLD_SATS = 546n;
+const DUST_RELAY_FEE_SATS_PER_KB = 3000n;
+const DUST_SIZE_BY_KIND = {
+    p2pkh: 34n + 148n,
+    authscript: 43n + 41n + 936n,
+    pq: 43n + 41n + 936n,
+    ecdsa: 43n + 41n + 28n,
+};
+/** Dust limit (sats) of an output paying `address`, as the node computes it. */
+function dustThresholdSats(address) {
+    const size = DUST_SIZE_BY_KIND[Signer.getAddressKind(address)] ?? DUST_SIZE_BY_KIND.p2pkh;
+    return (size * DUST_RELAY_FEE_SATS_PER_KB) / 1000n;
+}
 function xnaToSats(xna) {
     return amounts.assertMoneyRange(amounts.decimalToSatoshis(xna));
 }
@@ -121,7 +185,7 @@ function selectUTXOs(utxos, assetName, amount) {
     }
     return result;
 }
-function estimateSizeVbytes(inputs, targets) {
+function estimateSizeVbytes(inputs, targets, network = "xna") {
     const payments = targets.filter((t) => typeof t === 'string')
         .map(address => ({ address, valueSats: 0n }));
     const transfers = targets.filter((t) => typeof t !== 'string')
@@ -134,7 +198,7 @@ function estimateSizeVbytes(inputs, targets) {
         : neuraiCreateTransaction.createPaymentTransaction({ inputs: txInputs, payments }).rawTx;
     // The signer infers scripts from prevouts; its network argument does not
     // affect sizing. Dummy signatures provide a conservative pre-signing size.
-    return Signer.estimateVirtualSize('xna', raw, inputs);
+    return Signer.estimateVirtualSize(getSignerNetwork(network), raw, inputs);
 }
 async function getFeeRate(wallet) {
     try {
@@ -168,7 +232,9 @@ function buildPrivateKeyMap(wallet, utxos, forcedExtras = []) {
     return keys;
 }
 function signRawTransaction(network, rawTxHex, utxos, privateKeys) {
-    return Signer.sign(network, rawTxHex, utxos, privateKeys);
+    // The signer reads the input type from each prevout script; the network
+    // only selects the chain (WIF version byte, NIP-025 rule).
+    return Signer.sign(getSignerNetwork(network), rawTxHex, utxos, privateKeys);
 }
 async function broadcastSignedTransaction(wallet, signedHex) {
     return (await wallet.rpc("sendrawtransaction", [signedHex]));
@@ -322,26 +388,41 @@ function wrapRpc(rpc) {
 }
 
 /**
+ * Addresses a secp256k1 WIF can hold funds on: its Legacy P2PKH address and,
+ * for a compressed key, its strict ECDSA witness v3 address (neurai-key 5
+ * `xna` / `xna-test`). The chain of the wallet selects the WIF version byte.
+ */
+function sweepableAddresses(WIF, wallet) {
+    const addresses = [NeuraiKey.getAddressByWIF(getLegacyKeyNetwork(wallet.network), WIF).address];
+    try {
+        addresses.push(NeuraiKey.getAddressByWIF(getECDSAKeyNetwork(wallet.network), WIF).address);
+    }
+    catch {
+        // Uncompressed WIF: no ECDSA witness v3 address.
+    }
+    return addresses;
+}
+/**
  * Sweep all UTXOs (XNA + assets) held by `WIF` into the wallet's first
- * addresses. Sweeping PQ private keys is not supported.
+ * addresses. The WIF is a secp256k1 key: its Legacy P2PKH address and its
+ * ECDSA witness v3 address are swept together. Any wallet network can be the
+ * destination, PQ ones included.
  */
 async function sweep(WIF, wallet, onlineMode) {
-    if (wallet.network === "xna-pq" || wallet.network === "xna-pq-test") {
-        throw new Error("Sweeping WIF private keys is not supported on PQ wallets");
-    }
-    const privateKey = NeuraiKey.getAddressByWIF(wallet.network, WIF);
+    const fromAddresses = sweepableAddresses(WIF, wallet);
     const result = {};
     const rpc = wallet.rpc;
+    result.fromAddress = fromAddresses[0];
     const baseCurrencyUTXOs = (await rpc("getaddressutxos", [
-        { addresses: [privateKey.address] },
+        { addresses: fromAddresses },
     ]));
     const assetUTXOs = (await rpc("getaddressutxos", [
-        { addresses: [privateKey.address], assetName: "*" },
+        { addresses: fromAddresses, assetName: "*" },
     ]));
     const UTXOs = assetUTXOs.concat(baseCurrencyUTXOs);
     result.UTXOs = UTXOs;
     if (UTXOs.length === 0) {
-        result.errorDescription = `Address ${privateKey.address} has no funds`;
+        result.errorDescription = `Address ${fromAddresses.join(" / ")} has no funds`;
         return result;
     }
     // Total per asset (in satoshis)
@@ -357,8 +438,10 @@ async function sweep(WIF, wallet, onlineMode) {
         const address = wallet.getAddresses()[index];
         return assetName === wallet.baseCurrency ? address : { address, assetName };
     });
-    const fee = feeSatsFromVbytes(estimateSizeVbytes(UTXOs, targets), await getFeeRate(wallet));
-    if ((balanceByAsset[wallet.baseCurrency] ?? 0n) - fee < DUST_THRESHOLD_SATS) {
+    const fee = feeSatsFromVbytes(estimateSizeVbytes(UTXOs, targets, wallet.network), await getFeeRate(wallet));
+    const baseIndex = Object.keys(balanceByAsset).indexOf(wallet.baseCurrency);
+    const baseDestination = wallet.getAddresses()[Math.max(baseIndex, 0)];
+    if ((balanceByAsset[wallet.baseCurrency] ?? 0n) - fee < dustThresholdSats(baseDestination)) {
         result.errorDescription = 'Insufficient XNA to cover the sweep fee and a spendable output';
         return result;
     }
@@ -394,7 +477,7 @@ async function sweep(WIF, wallet, onlineMode) {
             assetMarker: await wallet.resolveAssetMarker(),
         })
         : neuraiCreateTransaction.createPaymentTransaction({ inputs, payments });
-    const signedHex = signRawTransaction(wallet.network, built.rawTx, UTXOs, { [privateKey.address]: WIF });
+    const signedHex = signRawTransaction(wallet.network, built.rawTx, UTXOs, Object.fromEntries(fromAddresses.map((address) => [address, WIF])));
     result.rawTransaction = signedHex;
     if (onlineMode === true) {
         result.transactionId = await broadcastSignedTransaction(wallet, signedHex);
@@ -547,7 +630,7 @@ async function buildSendManyInternal(wallet, options) {
     let baseCurrencyChangeSats;
     let feeSats;
     let dustAbsorbedSats = 0n;
-    if (tentativeChangeSats < DUST_THRESHOLD_SATS) {
+    if (tentativeChangeSats < dustThresholdSats(changeAddressBaseCurrency)) {
         // Below dust → drop the change output. The residue is implicitly paid
         // to the miner as part of the fee. Required for the network to accept
         // the transaction (sub-dust outputs are non-standard).
@@ -726,13 +809,6 @@ async function broadcastBuilt(wallet, result) {
 // Named import: the package publishes `NeuraiAssets` both as default and as a
 // named export, but only the named form survives every interop (rollup CJS
 // output resolved the default import to the module namespace).
-function getAssetPackageNetwork(network) {
-    if (network === "xna-legacy-test")
-        return "xna-test";
-    if (network === "xna-legacy")
-        return "xna";
-    return network;
-}
 // `asset_quantity` reaches createrawtransaction untouched: neurai-assets
 // >= 1.3.2 emits the user-facing display amount and the daemon scales it via
 // AmountFromValue. The old jswallet-side rescaling (÷10^(8-units)) double-
@@ -927,16 +1003,10 @@ class WalletAssets {
     }
 }
 
+/** Base currency of a wallet network: XNA on every Neurai chain. */
 function getBaseCurrencyByNetwork(network) {
-    const map = {
-        xna: "XNA",
-        "xna-test": "XNA",
-        "xna-legacy": "XNA",
-        "xna-legacy-test": "XNA",
-        "xna-pq": "XNA",
-        "xna-pq-test": "XNA",
-    };
-    return map[network];
+    getChainConfig(network); // rejects unknown networks
+    return "XNA";
 }
 
 async function getBalance(wallet, addresses) {
@@ -970,12 +1040,40 @@ const PQ_PURPOSE = 100;
 const PQ_COIN_TYPE_MAINNET = 1900;
 const PQ_COIN_TYPE_TESTNET = 1;
 const PQ_CHANGE_INDEX = 0;
-function isPQNetwork(network) {
-    return network === "xna-pq" || network === "xna-pq-test";
-}
-function getPQDerivationPath(network, account, index) {
-    const coinType = network === "xna-pq" ? PQ_COIN_TYPE_MAINNET : PQ_COIN_TYPE_TESTNET;
+// BIP44 for Legacy, BIP84-style purpose for strict ECDSA witness v3 (neurai-key 5).
+const LEGACY_PURPOSE = 44;
+const ECDSA_PURPOSE = 84;
+//Avoid singleton (anti-pattern)
+//Meaning multiple instances of the wallet must be able to co-exist
+function getPQDerivationPath(testnet, account, index) {
+    const coinType = testnet ? PQ_COIN_TYPE_TESTNET : PQ_COIN_TYPE_MAINNET;
     return `m_pq/${PQ_PURPOSE}'/${coinType}'/${account}'/${PQ_CHANGE_INDEX}'/${index}'`;
+}
+/**
+ * Derives the address objects of one wallet network. The HD keys are built
+ * once (seed generation is slow) and reused for every position.
+ */
+function createAddressDeriver(config, mnemonic, passphrase, account) {
+    if (config.family === "authscript-pq" || config.family === "pq") {
+        // One PQ HD tree serves the generic v1 and the strict v2 addresses.
+        const hdKey = NeuraiKey.getPQHDKey(config.testnet ? "xna-pq-test" : "xna-pq", mnemonic, passphrase);
+        return (position) => {
+            const path = getPQDerivationPath(config.testnet, account, position);
+            const derived = config.family === "pq"
+                ? NeuraiKey.getPQAddressByPath(config.keyNetwork, hdKey, path)
+                : NeuraiKey.getPQAuthScriptAddressByPath(config.keyNetwork, hdKey, path);
+            return [{ ...derived, keyType: "pq" }];
+        };
+    }
+    const keyNetwork = config.keyNetwork;
+    const hdKey = NeuraiKey.getHDKey(keyNetwork, mnemonic, passphrase);
+    const coinType = NeuraiKey.getCoinType(keyNetwork);
+    const purpose = config.family === "ecdsa" ? ECDSA_PURPOSE : LEGACY_PURPOSE;
+    const keyType = config.family === "ecdsa" ? "ecdsa" : "legacy";
+    return (position) => [0, 1].map((change) => ({
+        ...NeuraiKey.getAddressByPath(keyNetwork, hdKey, `m/${purpose}'/${coinType}'/${account}'/${change}/${position}`),
+        keyType,
+    }));
 }
 function getSigningMaterial(addressObject) {
     if (addressObject.seedKey) {
@@ -1067,9 +1165,8 @@ class Wallet {
         // Always assign — re-initialising an instance without an override must
         // not keep the previous one.
         this.assetMarker = options.assetMarker;
-        if (options.network === "xna-test" ||
-            options.network === "xna-legacy-test" ||
-            options.network === "xna-pq-test") {
+        const chainConfig = getChainConfig(options.network ?? this.network);
+        if (chainConfig.testnet) {
             url = URL_NEURAI_TESTNET;
         }
         url = options.rpc_url || url;
@@ -1083,17 +1180,8 @@ class Wallet {
         this._mnemonic = options.mnemonic;
         this._passphrase = options.passphrase || "";
         //Generating the hd key is slow, so we re-use the object
-        const usingPQ = isPQNetwork(this.network);
-        const pqNetwork = usingPQ ? this.network : null;
-        const legacyNetwork = usingPQ ? null : this.network;
-        const pqHDKey = usingPQ
-            ? NeuraiKey.getPQHDKey(pqNetwork, this._mnemonic, this._passphrase)
-            : null;
-        const legacyHDKey = usingPQ
-            ? null
-            : NeuraiKey.getHDKey(legacyNetwork, this._mnemonic, this._passphrase);
-        const coinType = usingPQ ? null : NeuraiKey.getCoinType(legacyNetwork);
         const ACCOUNT = 0;
+        const deriveAddresses = createAddressDeriver(chainConfig, this._mnemonic, this._passphrase, ACCOUNT);
         const minAmountOfAddresses = Number.isFinite(options.minAmountOfAddresses)
             ? options.minAmountOfAddresses
             : 0;
@@ -1102,30 +1190,14 @@ class Wallet {
             //We add new addresses to tempAddresses so we can check history for the last 20
             const tempAddresses = [];
             for (let i = 0; i < 20; i++) {
-                if (usingPQ) {
-                    const pqAddress = {
-                        ...NeuraiKey.getPQAddressByPath(pqNetwork, pqHDKey, getPQDerivationPath(pqNetwork, ACCOUNT, this.addressPosition)),
-                        keyType: "pq",
-                    };
-                    this.addressObjects.push(pqAddress);
-                    this.addressPosition++;
-                    tempAddresses.push(pqAddress.address + "");
+                // PQ networks: one object per position (single hardened branch).
+                // Legacy / ECDSA: external then internal, interleaved, so receive and
+                // change addresses are told apart by index parity.
+                for (const addressObject of deriveAddresses(this.addressPosition)) {
+                    this.addressObjects.push(addressObject);
+                    tempAddresses.push(addressObject.address + "");
                 }
-                else {
-                    const external = {
-                        ...NeuraiKey.getAddressByPath(legacyNetwork, legacyHDKey, `m/44'/${coinType}'/${ACCOUNT}'/0/${this.addressPosition}`),
-                        keyType: "legacy",
-                    };
-                    const internal = {
-                        ...NeuraiKey.getAddressByPath(legacyNetwork, legacyHDKey, `m/44'/${coinType}'/${ACCOUNT}'/1/${this.addressPosition}`),
-                        keyType: "legacy",
-                    };
-                    this.addressObjects.push(external);
-                    this.addressObjects.push(internal);
-                    this.addressPosition++;
-                    tempAddresses.push(external.address + "");
-                    tempAddresses.push(internal.address + "");
-                }
+                this.addressPosition++;
             }
             if (minAmountOfAddresses &&
                 minAmountOfAddresses >= this.addressPosition) {

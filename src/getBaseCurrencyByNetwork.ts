@@ -1,14 +1,8 @@
-import { ChainType } from "./Types";
+import { ChainType } from "./Types.js";
+import { getChainConfig } from "./networks.js";
 
-
+/** Base currency of a wallet network: XNA on every Neurai chain. */
 export function getBaseCurrencyByNetwork(network: ChainType): string {
-  const map = {
-    xna: "XNA",
-    "xna-test": "XNA",
-    "xna-legacy": "XNA",
-    "xna-legacy-test": "XNA",
-    "xna-pq": "XNA",
-    "xna-pq-test": "XNA",
-  };
-  return map[network];
+  getChainConfig(network); // rejects unknown networks
+  return "XNA";
 }

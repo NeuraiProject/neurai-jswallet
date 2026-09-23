@@ -17,9 +17,13 @@ const {
 } = require("./markerTestUtils.js");
 
 // Historic sweep-test key (testnet). The address it controls is derived, not
-// hardcoded, so the fixture cannot drift.
+// hardcoded, so the fixture cannot drift. neurai-key 5: `xna-legacy-test` is
+// the Legacy P2PKH address of the key, `xna-test` its ECDSA witness v3 one.
 const WIF = "cUVdRNVobgjAw5jGWYkvbWmk42Vxzvte4btmsZ5qSqszdPi9M3Vy";
-const SWEPT_ADDRESS = NeuraiKey.getAddressByWIF("xna-test", WIF).address;
+const SWEPT_ADDRESS = NeuraiKey.getAddressByWIF("xna-legacy-test", WIF).address;
+const SWEPT_ECDSA_ADDRESS = NeuraiKey.getAddressByWIF("xna-test", WIF).address;
+const { encodeDestinationScript } = require("@neuraiproject/neurai-create-transaction");
+const ecdsaScript = Buffer.from(encodeDestinationScript(SWEPT_ECDSA_ADDRESS)).toString("hex");
 
 function sweptBaseUtxo() {
   return makeUtxo({
@@ -156,5 +160,65 @@ describe("sweep NIP-040 (§4.2.5–6)", () => {
     wallet.rpc = makeStubRpc({ baseUtxos: [], assetUtxos: [] });
     const result = await wallet.sweep(WIF, false);
     expect(result.errorDescription).to.include(SWEPT_ADDRESS);
+    expect(result.errorDescription).to.include(SWEPT_ECDSA_ADDRESS);
+  });
+
+  it("looks up the Legacy and the ECDSA witness v3 address of the key", async () => {
+    const wallet = await createOfflineWallet();
+    const seen = [];
+    wallet.rpc = makeStubRpc({
+      baseUtxos: [],
+      handlers: {
+        getaddressutxos: ([query]) => {
+          seen.push(query.addresses);
+          return [];
+        },
+      },
+    });
+    await wallet.sweep(WIF, false);
+    expect(SWEPT_ADDRESS.startsWith("t")).to.equal(true);
+    expect(SWEPT_ECDSA_ADDRESS.startsWith("tnq1r")).to.equal(true);
+    for (const addresses of seen) {
+      expect(addresses).to.deep.equal([SWEPT_ADDRESS, SWEPT_ECDSA_ADDRESS]);
+    }
+  });
+
+  it("sweeps funds held by the ECDSA witness v3 address with a strict witness", async () => {
+    const wallet = await createOfflineWallet();
+    wallet.rpc = makeStubRpc({
+      baseUtxos: [
+        sweptBaseUtxo(),
+        makeUtxo({
+          address: SWEPT_ECDSA_ADDRESS,
+          assetName: "XNA",
+          script: ecdsaScript,
+          satoshis: 100_000_000,
+          txid: "dd".repeat(32),
+          index: 1,
+        }),
+      ],
+    });
+    const result = await wallet.sweep(WIF, false);
+    expect(result.errorDescription).to.equal(undefined);
+    const tx = parseTransaction(result.rawTransaction);
+    expect(tx.inputs).to.have.length(2);
+    const strictInput = tx.inputs.find((input) => input.txid === "dd".repeat(32));
+    expect(strictInput.witness).to.have.length(4);
+    expect(strictInput.witness[0]).to.equal("02");
+    expect(strictInput.witness[3]).to.equal("51");
+  });
+
+  it("sweeps a WIF into PQ wallets too", async () => {
+    for (const network of ["xna-pq-test", "xna-pq-strict-test", "xna-ecdsa-test"]) {
+      const wallet = await createOfflineWallet({ network });
+      wallet.rpc = makeStubRpc({ baseUtxos: [sweptBaseUtxo()] });
+      const result = await wallet.sweep(WIF, false);
+      expect(result.errorDescription, network).to.equal(undefined);
+      const tx = parseTransaction(result.rawTransaction);
+      const destination = wallet.getAddresses()[0];
+      expect(tx.outputs[0].scriptPubKeyHex).to.equal(
+        Buffer.from(encodeDestinationScript(destination)).toString("hex"),
+      );
+    }
   });
 });

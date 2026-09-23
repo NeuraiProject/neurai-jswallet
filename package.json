@@ -1,6 +1,6 @@
 {
   "name": "@neuraiproject/neurai-jswallet",
-  "version": "0.15.5",
+  "version": "0.16.0",
   "description": "Neurai JavaScript wallet library",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -9,12 +9,17 @@
   "types": "./dist/entries/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/entries/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/entries/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     },
     "./browser": {
-      "types": "./dist/entries/index.d.ts",
+      "types": "./dist/entries/browser.d.ts",
       "import": "./dist/browser.js"
     },
     "./global": "./dist/NeuraiJsWallet.global.js"
@@ -25,9 +30,11 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && rollup -c rollup.config.mjs",
+    "build": "tsc -p tsconfig.json && rollup -c rollup.config.mjs && rollup -c rollup.dts.config.mjs",
     "build:ts": "tsc -p tsconfig.json",
-    "test": "npm run build && mocha ./src/tests",
+    "test": "npm run build && mocha ./src/tests && npm run test:types",
+    "test:types": "tsc -p tsconfig.types.json && tsc -p tsconfig.types-node16.json && tsc -p tsconfig.types-bundler.json",
+    "test:package": "npm run build && node scripts/check-package.mjs",
     "test:run": "mocha ./src/tests",
     "prepack": "npm run build",
     "prepublishOnly": "npm run build"
@@ -45,12 +52,12 @@
     "url": "https://github.com/neuraiproject/neurai-jswallet/issues"
   },
   "dependencies": {
-    "@neuraiproject/neurai-assets": "^1.6.2",
-    "@neuraiproject/neurai-create-transaction": "^0.8.1",
-    "@neuraiproject/neurai-key": "^4.0.1",
+    "@neuraiproject/neurai-assets": "^1.7.2",
+    "@neuraiproject/neurai-create-transaction": "^0.9.1",
+    "@neuraiproject/neurai-key": "^5.0.2",
     "@neuraiproject/neurai-rpc": "^0.6.1",
-    "@neuraiproject/neurai-scripts": "^0.8.2",
-    "@neuraiproject/neurai-sign-transaction": "^2.4.2"
+    "@neuraiproject/neurai-scripts": "^0.9.1",
+    "@neuraiproject/neurai-sign-transaction": "^3.0.0"
   },
   "homepage": "https://github.com/neuraiproject/neurai-jswallet#readme",
   "devDependencies": {
@@ -61,6 +68,7 @@
     "chai": "^4.3.10",
     "mocha": "^11.7.5",
     "rollup": "^4.52.4",
+    "rollup-plugin-dts": "^6.5.1",
     "typescript": "^5.9.3"
   },
   "publishConfig": {

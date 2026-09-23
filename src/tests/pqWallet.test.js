@@ -16,9 +16,9 @@ it("PQ wallets derive distinct receive and change addresses", async () => {
   const changeAddress = await wallet.getChangeAddress();
   const assetChangeAddress = await wallet.getAssetChangeAddress();
 
-  expect(receiveAddress).to.match(/^tnq1/);
-  expect(changeAddress).to.match(/^tnq1/);
-  expect(assetChangeAddress).to.match(/^tnq1/);
+  expect(receiveAddress).to.match(/^tnc1p/);
+  expect(changeAddress).to.match(/^tnc1p/);
+  expect(assetChangeAddress).to.match(/^tnc1p/);
   expect(new Set([receiveAddress, changeAddress, assetChangeAddress]).size).to.equal(3);
 });
 
