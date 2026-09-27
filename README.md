@@ -36,9 +36,18 @@ Supported networks (each one selects a chain and an address family):
 | `xna-pq-strict` / `xna-pq-strict-test` | strict PQ witness v2 `pq1z…` / `tpq1z…` | `m_pq/100'/1900'/0'/0'/i'` (testnet `1'`) | `xna-pq` / `xna-pq-test` |
 | `xna-ecdsa` / `xna-ecdsa-test` | strict ECDSA witness v3 `nq1r…` / `tnq1r…` | `m/84'/1900'/0'/{0,1}/i` (testnet `m/84'/1'`) | `xna` / `xna-test` |
 
-The node only protects a witness family where it is active: today generic
-AuthScript v1 on testnet and regtest, strict PQ v2 / ECDSA v3 only on regtest.
+The node only protects a witness family where it is active.
+All three AuthScript families activate on the reset testnet at block 10 and on regtest at block 1.
 Use `xna` / `xna-test` (Legacy) on mainnet until activation is announced.
+
+### 0.17.0: reset testnet identity and asset marker
+
+Online testnet wallets verify the node's genesis before address discovery.
+Asset builds use the node's marker for the next block and reject a missing
+marker on testnet. This release requires assets `^1.8.0`, RPC `^0.7.0`,
+create-transaction `^0.9.2`, key `^5.0.3`, scripts `^0.9.2`, and
+sign-transaction `^3.0.3`. Addresses and keys retain their derivation paths;
+scan and UTXO state from the previous testnet must start afresh.
 
 ### 0.16.0: neurai-key 5
 
@@ -315,11 +324,21 @@ await wallet.sendMany({
 });
 ```
 
+## Reset testnet chain identity
+
+An online testnet wallet checks `getblockhash(0)` before scanning addresses.
+The expected genesis is
+`0000008b384aeffecdab182575dc4e86c9f07f90318c65088532660ed9a8a021`.
+For a deliberate regtest connection, set `IOptions.expectedGenesisHash` to
+that regtest node's genesis. Offline wallets do not contact a node; verify
+the genesis before loading saved UTXOs, balances or history into them. Reset
+those saved records and scan the new chain from the start after a testnet reset.
+
 ## NIP-040 asset marker (0.15.0)
 
 [NIP-040](https://github.com/NeuraiProject/NIPs) replaces the Ravencoin-inherited
 `rvn` bytes at the start of every asset script payload with `xna`. On testnet
-the change is active (block 303000); after activation the node rejects locally
+the change activates at block 10; after activation the node rejects locally
 built asset transactions that still carry `rvn`
 (`bad-txns-legacy-asset-marker-after-nip040`). Mainnet activation is not yet
 scheduled.
@@ -333,8 +352,8 @@ contains asset outputs (`send`/`sendMany` of an asset, `sweep` with assets,
    RPC call is made.
 2. Otherwise `getblockchaininfo.asset_marker` from the wallet's node (the
    marker the node requires for the next block).
-3. `'rvn'` only when the call succeeded but the field is absent or `null`
-   (nodes that predate NIP-040).
+3. On mainnet, `'rvn'` when the call succeeded but the field is absent or
+   `null`. Testnet requires the field or an explicit override.
 
 The resolution is **fail-closed**: if `getblockchaininfo` is rejected or
 unreachable, the build rejects with an `Error` instead of silently emitting a

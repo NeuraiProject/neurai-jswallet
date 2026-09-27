@@ -84,14 +84,14 @@ describe("NIP-040 resolveAssetMarker (§4.1)", () => {
     expect(await rvn.wallet.resolveAssetMarker()).to.equal("rvn");
   });
 
-  it("falls back to 'rvn' only when the field is absent or null", async () => {
+  it("rejects a missing or null marker on testnet", async () => {
     const absent = await walletWithStub({ blockchainInfo: { chain: "test" } });
-    expect(await absent.wallet.resolveAssetMarker()).to.equal("rvn");
+    expect((await rejectionOf(absent.wallet.resolveAssetMarker())).message).to.match(/did not report asset_marker/);
 
     const asNull = await walletWithStub({
       blockchainInfo: { asset_marker: null },
     });
-    expect(await asNull.wallet.resolveAssetMarker()).to.equal("rvn");
+    expect((await rejectionOf(asNull.wallet.resolveAssetMarker())).message).to.match(/did not report asset_marker/);
   });
 
   it("rejects an unknown node value", async () => {
@@ -145,12 +145,14 @@ describe("NIP-040 resolveAssetMarker (§4.1)", () => {
       blockchainInfo: { asset_marker: "rvn" },
     });
     expect(wallet.assetMarker).to.equal("xna");
+    const previousAddresses = wallet.getAddresses();
     await wallet.init({
       mnemonic: MNEMONIC,
       network: "xna-test",
       offlineMode: true,
     });
     expect(wallet.assetMarker).to.equal(undefined);
+    expect(wallet.getAddresses()).to.deep.equal(previousAddresses);
   });
 
   it("createInstance rejects an invalid assetMarker option", async () => {
@@ -198,20 +200,16 @@ describe("NIP-040 payments (§4.2)", () => {
     expect(res.debug.signedTransaction.length).to.be.greaterThan(0);
   });
 
-  it("a node without the field produces legacy 'rvn' outputs", async () => {
+  it("a testnet node without the field cannot build asset outputs", async () => {
     const { wallet } = await walletWithStub({
       blockchainInfo: { chain: "test" },
     });
-    const res = await wallet.createTransaction({
+    const error = await rejectionOf(wallet.createTransaction({
       toAddress: RECIPIENT,
       amount: 1,
       assetName: "TESTASSET",
-    });
-    const outs = assetOutputsOf(res.debug.rawUnsignedTransaction);
-    expect(outs).to.have.length(2);
-    for (const o of outs) {
-      expect(o.split.assetTransfer.marker).to.equal("rvn");
-    }
+    }));
+    expect(error.message).to.match(/did not report asset_marker/);
   });
 
   it("the wallet override beats a contrary node answer (both directions)", async () => {

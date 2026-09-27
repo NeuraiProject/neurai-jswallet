@@ -1035,6 +1035,7 @@ async function getAssets(wallet, addresses) {
 
 const URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
+const TESTNET_GENESIS_HASH = "0000008b384aeffecdab182575dc4e86c9f07f90318c65088532660ed9a8a021";
 // NIP-022 PQ-HD (neurai-key >= 4.0.0): every path level must be hardened.
 const PQ_PURPOSE = 100;
 const PQ_COIN_TYPE_MAINNET = 1900;
@@ -1151,9 +1152,7 @@ class Wallet {
         if (!options) {
             throw Error("option argument is mandatory");
         }
-        if (options.offlineMode === true) {
-            this.offlineMode = true;
-        }
+        this.offlineMode = options.offlineMode === true;
         if (!options.mnemonic) {
             throw Error("option.mnemonic is mandatory");
         }
@@ -1177,6 +1176,24 @@ class Wallet {
             this.setBaseCurrency(getBaseCurrencyByNetwork(options.network));
         }
         this.rpc = wrapRpc(neuraiRpc.getRPC(username, password, url));
+        if (!this.offlineMode && chainConfig.testnet) {
+            const expectedGenesisHash = options.expectedGenesisHash ?? TESTNET_GENESIS_HASH;
+            if (!/^[0-9a-fA-F]{64}$/.test(expectedGenesisHash)) {
+                throw new ValidationError("options.expectedGenesisHash must be a 64-character block hash");
+            }
+            const actualGenesisHash = await this.rpc(neuraiRpc.methods.getblockhash, [0]);
+            if (typeof actualGenesisHash !== "string" ||
+                actualGenesisHash.toLowerCase() !== expectedGenesisHash.toLowerCase()) {
+                throw new ValidationError(`Unexpected testnet genesis block: expected ${expectedGenesisHash}, received ${String(actualGenesisHash)}`);
+            }
+        }
+        // A reinitialised wallet must scan the selected chain from a clean address state.
+        this.addressObjects = [];
+        this.addressPosition = 0;
+        this.receiveAddress = "";
+        this.changeAddress = "";
+        this.assetChangeAddress = "";
+        this._assets = null;
         this._mnemonic = options.mnemonic;
         this._passphrase = options.passphrase || "";
         //Generating the hd key is slow, so we re-use the object
@@ -1221,8 +1238,8 @@ class Wallet {
      *   1. `IOptions.assetMarker` (wallet-level override) — validated, no RPC.
      *   2. `getblockchaininfo.asset_marker` from the wallet's node — the value
      *      the node requires for the next block candidate.
-     *   3. `'rvn'` only when the call succeeded but the field is absent or
-     *      `null` (nodes that predate NIP-040).
+     *   3. On mainnet, `'rvn'` when the call succeeded but the field is absent
+     *      or `null` (nodes that predate NIP-040). Testnet requires the field.
      *
      * A rejected/unreachable `getblockchaininfo` propagates as `Error` — it is
      * never converted into `'rvn'`, because that could silently produce a
@@ -1251,6 +1268,9 @@ class Wallet {
         const marker = info
             ?.asset_marker;
         if (marker === undefined || marker === null) {
+            if (getChainConfig(this.network).testnet) {
+                throw new Error("Testnet node did not report asset_marker; pass options.assetMarker for an offline build");
+            }
             return "rvn";
         }
         if (marker === "rvn" || marker === "xna") {

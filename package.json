@@ -1,6 +1,6 @@
 {
   "name": "@neuraiproject/neurai-jswallet",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Neurai JavaScript wallet library",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -52,12 +52,12 @@
     "url": "https://github.com/neuraiproject/neurai-jswallet/issues"
   },
   "dependencies": {
-    "@neuraiproject/neurai-assets": "^1.7.2",
-    "@neuraiproject/neurai-create-transaction": "^0.9.1",
-    "@neuraiproject/neurai-key": "^5.0.2",
-    "@neuraiproject/neurai-rpc": "^0.6.1",
-    "@neuraiproject/neurai-scripts": "^0.9.1",
-    "@neuraiproject/neurai-sign-transaction": "^3.0.0"
+    "@neuraiproject/neurai-assets": "^1.8.0",
+    "@neuraiproject/neurai-create-transaction": "^0.9.2",
+    "@neuraiproject/neurai-key": "^5.0.3",
+    "@neuraiproject/neurai-rpc": "^0.7.0",
+    "@neuraiproject/neurai-scripts": "^0.9.2",
+    "@neuraiproject/neurai-sign-transaction": "^3.0.3"
   },
   "homepage": "https://github.com/neuraiproject/neurai-jswallet#readme",
   "devDependencies": {

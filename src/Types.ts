@@ -324,6 +324,8 @@ export interface IOptions {
   rpc_url?: string;
   passphrase?: string;
   offlineMode?: boolean;
+  /** Required genesis for an online testnet wallet; override only for an intentional regtest chain. */
+  expectedGenesisHash?: string;
   /**
    * NIP-040 asset payload marker override (`'rvn'` | `'xna'`).
    *
@@ -333,7 +335,7 @@ export interface IOptions {
    * unset to ask the node before each build that contains asset outputs —
    * fail-closed: an RPC failure rejects instead of silently falling back to
    * `'rvn'`, and only a successful reply without the field (nodes that
-   * predate NIP-040) resolves to `'rvn'`.
+   * predate NIP-040) resolves to `'rvn'` on mainnet. Testnet requires the field.
    */
   assetMarker?: "rvn" | "xna";
 }
