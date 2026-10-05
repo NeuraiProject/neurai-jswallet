@@ -40,6 +40,13 @@ The node only protects a witness family where it is active.
 All three AuthScript families activate on the reset testnet at block 10 and on regtest at block 1.
 Use `xna` / `xna-test` (Legacy) on mainnet until activation is announced.
 
+### 0.17.1: dependency update
+
+Requires sign-transaction `^3.1.0` (was `^3.0.3`) and assets `^1.8.2` (was
+`^1.8.0`). The wallet API and its signatures are unchanged: jswallet keeps
+signing every input with `SIGHASH_ALL`. Development only: `brace-expansion`
+2.1.7 in the lockfile clears the `npm audit` advisories reported via mocha.
+
 ### 0.17.0: reset testnet identity and asset marker
 
 Online testnet wallets verify the node's genesis before address discovery.
