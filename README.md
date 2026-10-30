@@ -40,6 +40,16 @@ The node only protects a witness family where it is active.
 All three AuthScript families activate on the reset testnet at block 10 and on regtest at block 1.
 Use `xna` / `xna-test` (Legacy) on mainnet until activation is announced.
 
+### 0.18.0: no-RBF signer and scripts 0.11
+
+Requires sign-transaction `^3.4.0` (was `^3.1.0`) and scripts `^0.11.0` (was
+`^0.9.2`). Signing applies the node's no-RBF sequence rule on testnet; jswallet
+does not set input sequences, so its own transactions are unaffected. The
+`scripts` namespace that jswallet re-exports now comes from neurai-scripts 0.11:
+the partial-fill covenant with the input-0 binding of 0.10.0 (orders built with
+scripts < 0.10.0 must be cancelled and published again) and the NIP-054 P2AH
+helpers. The browser and global bundles carry these versions.
+
 ### 0.17.1: dependency update
 
 Requires sign-transaction `^3.1.0` (was `^3.0.3`) and assets `^1.8.2` (was
