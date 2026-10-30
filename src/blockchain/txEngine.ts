@@ -219,7 +219,7 @@ export function signRawTransaction(
   privateKeys: Record<string, unknown>,
 ): string {
   // The signer reads the input type from each prevout script; the network
-  // only selects the chain (WIF version byte, NIP-025 rule).
+  // only selects the chain (WIF version byte, no-RBF sequence rule).
   return Signer.sign(getSignerNetwork(network), rawTxHex, utxos, privateKeys as any);
 }
 
