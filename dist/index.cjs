@@ -1035,7 +1035,7 @@ async function getAssets(wallet, addresses) {
 
 const URL_NEURAI_MAINNET = "https://rpc-main.neurai.org/rpc";
 const URL_NEURAI_TESTNET = "https://rpc-testnet.neurai.org/rpc";
-const TESTNET_GENESIS_HASH = "0000008b384aeffecdab182575dc4e86c9f07f90318c65088532660ed9a8a021";
+const TESTNET_GENESIS_HASH = "000000c710413a4265a996d30c86043aedef6a563900f1bc43fea61d5b2dc77d";
 // NIP-022 PQ-HD (neurai-key >= 4.0.0): every path level must be hardened.
 const PQ_PURPOSE = 100;
 const PQ_COIN_TYPE_MAINNET = 1900;

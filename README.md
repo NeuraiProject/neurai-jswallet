@@ -40,6 +40,17 @@ The node only protects a witness family where it is active.
 All three AuthScript families activate on the reset testnet at block 10 and on regtest at block 1.
 Use `xna` / `xna-test` (Legacy) on mainnet until activation is announced.
 
+### 0.18.1: testnet reset of 2026-11-05 and reference inputs by flag
+
+An online testnet wallet expects genesis
+`000000c710413a4265a996d30c86043aedef6a563900f1bc43fea61d5b2dc77d` and refuses
+a node of the previous testnet before scanning addresses. Requires
+create-transaction `^0.10.0`, scripts `^0.12.0` and sign-transaction `^3.5.0`,
+which follow the node's NIP-014 encoding: reference inputs are announced by
+flag `0x02`, and a version 3 transaction without them is encoded and signed as
+in 1.0.7. jswallet builds version 2 transactions, so its own transactions do
+not change.
+
 ### 0.18.0: no-RBF signer and scripts 0.11
 
 Requires sign-transaction `^3.4.0` (was `^3.1.0`) and scripts `^0.11.0` (was
@@ -345,7 +356,7 @@ await wallet.sendMany({
 
 An online testnet wallet checks `getblockhash(0)` before scanning addresses.
 The expected genesis is
-`0000008b384aeffecdab182575dc4e86c9f07f90318c65088532660ed9a8a021`.
+`000000c710413a4265a996d30c86043aedef6a563900f1bc43fea61d5b2dc77d`.
 For a deliberate regtest connection, set `IOptions.expectedGenesisHash` to
 that regtest node's genesis. Offline wallets do not contact a node; verify
 the genesis before loading saved UTXOs, balances or history into them. Reset
