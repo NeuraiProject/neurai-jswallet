@@ -40,6 +40,17 @@ The node only protects a witness family where it is active.
 All three AuthScript families activate on the reset testnet at block 10 and on regtest at block 1.
 Use `xna` / `xna-test` (Legacy) on mainnet until activation is announced.
 
+### 0.18.2: neurai-rpc 0.9, neurai-key 5.0.4 and assets 1.8.4
+
+Requires neurai-rpc `^0.9.1` (was `^0.7.0`), neurai-key `^5.0.4` (was
+`^5.0.3`) and assets `^1.8.4` (was `^1.8.2`). In 0.x a caret range does not
+cross minor versions, so `^0.7.0` kept neurai-rpc 0.7 next to the 0.9.1 that
+applications install, and assets before 1.8.4 declared a peer neurai-rpc
+`^0.7.0` that conflicts with 0.9.1. The browser and global bundles carried
+neurai-key 5.0.3, whose chain parameters still named the genesis of the
+previous testnet. Nothing read that field and the wallet checks the genesis
+with its own constant, so behaviour does not change.
+
 ### 0.18.1: testnet reset of 2026-11-05 and reference inputs by flag
 
 An online testnet wallet expects genesis
